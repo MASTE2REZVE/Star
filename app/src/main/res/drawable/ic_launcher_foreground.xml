@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="216" android:viewportHeight="216">
+
+    <!-- Main gold sparkle (slightly smaller, more centered) -->
+    <path android:pathData="M108,50 Q119,97 166,108 Q119,119 108,166 Q97,119 50,108 Q97,97 108,50 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear"
+                android:startX="50" android:startY="50"
+                android:endX="166" android:endY="166">
+                <item android:offset="0" android:color="#FFFFD54F"/>
+                <item android:offset="0.5" android:color="#FFFFB800"/>
+                <item android:offset="1" android:color="#FFFF8F00"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner white sparkle rotated 45° -->
+    <group android:pivotX="108" android:pivotY="108" android:rotation="45">
+        <path android:fillColor="#FFFFF1C1"
+            android:pathData="M108,74 Q113,103 142,108 Q113,113 108,142 Q103,113 74,108 Q103,103 108,74 Z" />
+    </group>
+</vector>

@@ -1,0 +1,1285 @@
+package com.star.app;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.Dialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.text.InputType;
+import android.view.GestureDetector;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.Window;
+import android.view.animation.DecelerateInterpolator;
+import android.widget.*;
+import org.json.*;
+import java.util.ArrayList;
+
+public class ChatActivity extends Activity {
+    private static final int BG = 0xFF0F0F0F;
+    private static final int TOPBAR = 0xFF171717;
+    private static final int CARD = 0xFF1E1E1E;
+    private static final int BORDER = 0xFF2A2A2A;
+    private static final int USER_BUBBLE = 0xFF2A2A2A;
+    private static final int AI_TEXT = 0xFFECECEC;
+    private static final int MUTED = 0xFF8E8E8E;
+    private static final int ACCENT = 0xFF7CB3FF;
+
+    private FrameLayout rootFrame;
+    private LinearLayout contentLayer, drawer, messages;
+    private ScrollView scroll;
+    private View backdrop;
+    private JSONArray history = new JSONArray();
+    private Prefs prefs;
+    private ImageView sendIcon, stopIcon;
+    private TextView mic, modelPill, agentPill, statusWarning;
+    private EditText input;
+    private LinearLayout emptyState;
+    private FrameLayout sendBtn, micBtn;
+    private boolean agentMode = false;
+    private boolean running = false;
+    private int toolCallDepth = 0;
+    private static final int MAX_TOOL_DEPTH = 12;
+    private SpeechRecognizer sr;
+    private boolean listening = false;
+    private boolean drawerOpen = false;
+    private GestureDetector gesture;
+    private boolean wantsVoice = false;
+    private volatile boolean stopRequested = false;
+    private boolean autoRepairTried = false;
+    private Uri attachedUri = null;
+    private LinearLayout attachBar;
+    private static final int PICK_FILE = 9001;
+
+    @Override protected void onCreate(Bundle b) {
+        super.onCreate(b);
+        prefs = new Prefs(this);
+        agentMode = prefs.getAgentMode();
+        wantsVoice = getIntent().getBooleanExtra("voice", false);
+
+        // Silent self-heal before UI builds
+        autoHeal();
+
+        rootFrame = new FrameLayout(this);
+        rootFrame.setBackgroundColor(BG);
+
+        contentLayer = new LinearLayout(this);
+        contentLayer.setOrientation(LinearLayout.VERTICAL);
+        contentLayer.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setBackgroundColor(BG);
+        topBar.setPadding(dp(12), dp(12), dp(12), dp(12));
+
+        TextView menu = new TextView(this);
+        menu.setText("☰");
+        menu.setTextSize(20);
+        menu.setTextColor(AI_TEXT);
+        menu.setPadding(dp(8), dp(6), dp(8), dp(6));
+        menu.setClickable(true);
+        menu.setOnClickListener(v -> openDrawer());
+        topBar.addView(menu);
+
+        modelPill = new TextView(this);
+        modelPill.setTextSize(13);
+        modelPill.setTextColor(AI_TEXT);
+        modelPill.setTypeface(Typeface.DEFAULT_BOLD);
+        modelPill.setPadding(dp(12), dp(6), dp(12), dp(6));
+        modelPill.setClickable(true);
+        GradientDrawable mp = new GradientDrawable();
+        mp.setCornerRadius(dp(14));
+        mp.setColor(CARD);
+        mp.setStroke(dp(1), BORDER);
+        modelPill.setBackground(mp);
+        modelPill.setOnClickListener(v -> pickModel());
+        refreshModelPill();
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        mlp.leftMargin = dp(8);
+        modelPill.setLayoutParams(mlp);
+        topBar.addView(modelPill);
+
+        agentPill = new TextView(this);
+        agentPill.setTextSize(12);
+        agentPill.setPadding(dp(12), dp(6), dp(12), dp(6));
+        agentPill.setClickable(true);
+        agentPill.setOnClickListener(v -> {
+            agentMode = !agentMode;
+            prefs.setAgentMode(agentMode);
+            refreshAgentPill();
+            toast(agentMode ? "Agent ON" : "Agent OFF");
+        });
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        alp.rightMargin = dp(8);
+        agentPill.setLayoutParams(alp);
+        topBar.addView(agentPill);
+        refreshAgentPill();
+
+        TextView newChat = new TextView(this);
+        newChat.setText("✎");
+        newChat.setTextSize(18);
+        newChat.setTextColor(AI_TEXT);
+        newChat.setPadding(dp(8), dp(6), dp(8), dp(6));
+        newChat.setClickable(true);
+        newChat.setOnClickListener(v -> {
+            history = new JSONArray();
+            messages.removeAllViews();
+            prefs.setHistory("");
+            toolCallDepth = 0;
+            stopRequested = false;
+            showEmptyState();
+        });
+        topBar.addView(newChat);
+        contentLayer.addView(topBar);
+
+        statusWarning = new TextView(this);
+        statusWarning.setTextSize(12);
+        statusWarning.setPadding(dp(20), dp(8), dp(20), dp(8));
+        statusWarning.setVisibility(View.GONE);
+        statusWarning.setClickable(true);
+        contentLayer.addView(statusWarning);
+
+        FrameLayout chatFrame = new FrameLayout(this);
+        chatFrame.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
+
+        messages = new LinearLayout(this);
+        messages.setOrientation(LinearLayout.VERTICAL);
+        messages.setPadding(dp(20), dp(8), dp(20), dp(8));
+        scroll.addView(messages);
+
+        emptyState = new LinearLayout(this);
+        emptyState.setOrientation(LinearLayout.VERTICAL);
+        emptyState.setGravity(Gravity.CENTER);
+        emptyState.setPadding(dp(24), dp(24), dp(24), dp(24));
+
+        chatFrame.addView(scroll);
+        chatFrame.addView(emptyState);
+        contentLayer.addView(chatFrame);
+
+        LinearLayout inputOuter = new LinearLayout(this);
+        inputOuter.setOrientation(LinearLayout.HORIZONTAL);
+        inputOuter.setGravity(Gravity.CENTER_VERTICAL);
+        inputOuter.setPadding(dp(12), dp(8), dp(12), dp(16));
+        inputOuter.setBackgroundColor(BG);
+
+        LinearLayout inputBox = new LinearLayout(this);
+        inputBox.setOrientation(LinearLayout.HORIZONTAL);
+        inputBox.setGravity(Gravity.CENTER_VERTICAL);
+        inputBox.setPadding(dp(4), dp(4), dp(4), dp(4));
+        GradientDrawable ib = new GradientDrawable();
+        ib.setCornerRadius(dp(26));
+        ib.setColor(CARD);
+        ib.setStroke(dp(1), BORDER);
+        inputBox.setBackground(ib);
+        inputBox.setLayoutParams(new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        micBtn = new FrameLayout(this);
+        micBtn.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
+        micBtn.setClickable(true);
+        micBtn.setOnClickListener(v -> toggleVoice());
+
+        ImageView micIcon = new ImageView(this);
+        micIcon.setImageResource(R.drawable.ic_wave);
+        FrameLayout.LayoutParams milp = new FrameLayout.LayoutParams(dp(24), dp(24));
+        milp.gravity = Gravity.CENTER;
+        micIcon.setLayoutParams(milp);
+        micBtn.addView(micIcon);
+        micBtn.setTag(micIcon);
+
+        input = new EditText(this);
+        input.setHint("Message Star…");
+        input.setTextColor(AI_TEXT);
+        input.setHintTextColor(MUTED);
+        input.setTextSize(16);
+        input.setBackground(null);
+        input.setPadding(dp(8), dp(8), dp(8), dp(8));
+        input.setMaxLines(5);
+        input.setInputType(InputType.TYPE_CLASS_TEXT |
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE |
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setLayoutParams(new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        sendBtn = new FrameLayout(this);
+        sendBtn.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
+        sendBtn.setClickable(true);
+        GradientDrawable sbg = new GradientDrawable();
+        sbg.setShape(GradientDrawable.OVAL);
+        sbg.setColor(ACCENT);
+        sendBtn.setBackground(sbg);
+        sendBtn.setOnClickListener(v -> {
+            if (running) stopAI();
+            else onSend();
+        });
+
+        sendIcon = new ImageView(this);
+        sendIcon.setImageResource(R.drawable.ic_send);
+        FrameLayout.LayoutParams silp = new FrameLayout.LayoutParams(dp(22), dp(22));
+        silp.gravity = Gravity.CENTER;
+        sendIcon.setLayoutParams(silp);
+
+        stopIcon = new ImageView(this);
+        stopIcon.setImageResource(R.drawable.ic_stop);
+        stopIcon.setLayoutParams(silp);
+        stopIcon.setVisibility(View.GONE);
+
+        sendBtn.addView(sendIcon);
+        sendBtn.addView(stopIcon);
+
+        // Attach button
+        FrameLayout attachBtn = new FrameLayout(this);
+        attachBtn.setLayoutParams(new LinearLayout.LayoutParams(dp(40), dp(44)));
+        attachBtn.setClickable(true);
+        attachBtn.setOnClickListener(v -> pickAttachment());
+        ImageView attachIcon = new ImageView(this);
+        attachIcon.setImageResource(R.drawable.ic_attach);
+        FrameLayout.LayoutParams ailp = new FrameLayout.LayoutParams(dp(22), dp(22));
+        ailp.gravity = Gravity.CENTER;
+        attachIcon.setLayoutParams(ailp);
+        attachBtn.addView(attachIcon);
+
+        inputBox.addView(attachBtn);
+        inputBox.addView(micBtn);
+        inputBox.addView(input);
+        inputBox.addView(sendBtn);
+        // Attachment preview bar (hidden by default)
+        attachBar = new LinearLayout(this);
+        attachBar.setOrientation(LinearLayout.HORIZONTAL);
+        attachBar.setGravity(Gravity.CENTER_VERTICAL);
+        attachBar.setPadding(dp(16), dp(8), dp(16), dp(4));
+        attachBar.setBackgroundColor(BG);
+        attachBar.setVisibility(View.GONE);
+        contentLayer.addView(attachBar);
+
+        inputOuter.addView(inputBox);
+        contentLayer.addView(inputOuter);
+
+        rootFrame.addView(contentLayer);
+
+        backdrop = new View(this);
+        backdrop.setBackgroundColor(0xCC000000);
+        backdrop.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        backdrop.setVisibility(View.GONE);
+        backdrop.setOnClickListener(v -> closeDrawer());
+        rootFrame.addView(backdrop);
+
+        drawer = buildDrawer();
+        FrameLayout.LayoutParams dly = new FrameLayout.LayoutParams(
+            dp(280), ViewGroup.LayoutParams.MATCH_PARENT);
+        drawer.setLayoutParams(dly);
+        drawer.setVisibility(View.GONE);
+        rootFrame.addView(drawer);
+
+        setContentView(rootFrame);
+
+        gesture = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null || e2 == null) return false;
+                float dx = e2.getX() - e1.getX();
+                if (e1.getX() < dp(24) && dx > dp(80)) { openDrawer(); return true; }
+                if (drawerOpen && dx < -dp(80)) { closeDrawer(); return true; }
+                return false;
+            }
+        });
+
+        String saved = prefs.getHistory();
+        if (!saved.isEmpty()) {
+            try {
+                history = new JSONArray(saved);
+                for (int i = 0; i < history.length(); i++) {
+                    JSONObject m = history.getJSONObject(i);
+                    String role = m.optString("role");
+                    String content = m.optString("content", "");
+                    if (role.equals("user")) addUserBubble(content);
+                    else if (role.equals("assistant") && !content.isEmpty())
+                        addAIBubble(content);
+                }
+                scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
+            } catch (Exception ignored) {}
+        } else showEmptyState();
+
+        if (wantsVoice) input.postDelayed(this::toggleVoice, 400);
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (prefs != null && modelPill != null) refreshModelPill();
+        refreshStatusWarning();
+    }
+
+    private void refreshStatusWarning() {
+        if (statusWarning == null) return;
+        boolean shizukuOk = ShizukuHelper.isAvailable();
+        boolean accOk = StarAccessibilityService.isRunning();
+
+        // Try to auto-repair accessibility once per screen open
+        if (!accOk && shizukuOk && prefs.getAutoRepair() && !autoRepairTried) {
+            autoRepairTried = true;
+            new Thread(() -> {
+                SelfHeal.repair(ChatActivity.this, 4000);
+                runOnUiThread(() -> {
+                    if (StarAccessibilityService.isRunning()) {
+                        statusWarning.setVisibility(View.GONE);
+                    } else {
+                        showWarningBanner(shizukuOk, false);
+                    }
+                });
+            }).start();
+            return;
+        }
+
+        if (shizukuOk && accOk) {
+            statusWarning.setVisibility(View.GONE);
+        } else {
+            showWarningBanner(shizukuOk, accOk);
+        }
+    }
+
+    private void showWarningBanner(boolean shizukuOk, boolean accOk) {
+        StringBuilder msg = new StringBuilder();
+        if (!shizukuOk) msg.append("Shizuku not active");
+        if (!accOk) {
+            if (msg.length() > 0) msg.append("  ·  ");
+            msg.append("Accessibility off");
+        }
+        msg.append("  ·  Tap to fix");
+        statusWarning.setText(msg.toString());
+        statusWarning.setTextColor(0xFFF0883E);
+        GradientDrawable wbg = new GradientDrawable();
+        wbg.setColor(0xFF1F1610);
+        wbg.setStroke(dp(1), 0x44F0883E);
+        statusWarning.setBackground(wbg);
+        statusWarning.setVisibility(View.VISIBLE);
+        statusWarning.setOnClickListener(v -> {
+            if (!ShizukuHelper.isRunning()) {
+                toast("Open Shizuku app and restart it");
+            } else if (!ShizukuHelper.hasPermission()) {
+                ShizukuHelper.requestPermission();
+            }
+            if (!StarAccessibilityService.isRunning()) {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            }
+        });
+    }
+
+    @Override public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (gesture != null) gesture.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void refreshAgentPill() {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(14));
+        if (agentMode) {
+            bg.setColor(0x333FB950);
+            bg.setStroke(dp(1), 0xFF3FB950);
+            agentPill.setText("● Agent");
+            agentPill.setTextColor(0xFF3FB950);
+        } else {
+            bg.setColor(CARD);
+            bg.setStroke(dp(1), BORDER);
+            agentPill.setText("○ Agent");
+            agentPill.setTextColor(MUTED);
+        }
+        agentPill.setBackground(bg);
+    }
+
+    private void refreshModelPill() {
+        String m = prefs.getModel();
+        if (m.contains("/")) m = m.substring(m.lastIndexOf("/") + 1);
+        if (m.length() > 22) m = m.substring(0, 22) + "…";
+        modelPill.setText(m + "  ▾");
+    }
+
+    private static final int PICK_MODEL = 7777;
+
+    private void pickModel() {
+        Intent i = new Intent(this, StudioModelsActivity.class);
+        i.putExtra("modality", "text");
+        startActivityForResult(i, PICK_MODEL);
+    }
+
+
+
+    private LinearLayout buildDrawer() {
+        LinearLayout d = new LinearLayout(this);
+        d.setOrientation(LinearLayout.VERTICAL);
+        d.setBackgroundColor(TOPBAR);
+        d.setPadding(dp(20), dp(32), dp(20), dp(20));
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(4), 0, dp(4), dp(20));
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_star_logo);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        slp.rightMargin = dp(12);
+        logo.setLayoutParams(slp);
+        header.addView(logo);
+
+        LinearLayout nameCol = new LinearLayout(this);
+        nameCol.setOrientation(LinearLayout.VERTICAL);
+
+        TextView nm = new TextView(this);
+        nm.setText("Star");
+        nm.setTextSize(18);
+        nm.setTypeface(Typeface.DEFAULT_BOLD);
+        nm.setTextColor(AI_TEXT);
+        nameCol.addView(nm);
+
+        TextView tag = new TextView(this);
+        tag.setText("AI Agent");
+        tag.setTextSize(12);
+        tag.setTextColor(MUTED);
+        nameCol.addView(tag);
+
+        header.addView(nameCol);
+        d.addView(header);
+
+        View div = new View(this);
+        LinearLayout.LayoutParams divlp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(1));
+        divlp.bottomMargin = dp(12);
+        div.setLayoutParams(divlp);
+        div.setBackgroundColor(BORDER);
+        d.addView(div);
+
+        d.addView(drawerItem("✎", "New Chat", v1 -> {
+            closeDrawer();
+            history = new JSONArray();
+            messages.removeAllViews();
+            prefs.setHistory("");
+            toolCallDepth = 0;
+            stopRequested = false;
+            showEmptyState();
+        }));
+        d.addView(drawerItem("▤", "Voice Mode", v1 -> {
+            closeDrawer();
+            startActivity(new Intent(this, VoiceActivity.class));
+        }));
+        d.addView(drawerItem("◎", "Live Mode", v1 -> {
+            closeDrawer();
+            toast("Live AI — next step");
+        }));
+        d.addView(drawerItem("◐", "Floating Bubble", v1 -> {
+            closeDrawer();
+            if (android.os.Build.VERSION.SDK_INT >= 23 &&
+                !android.provider.Settings.canDrawOverlays(this)) {
+                startActivity(new Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName())));
+                toast("Allow 'Display over other apps', then tap again");
+                return;
+            }
+            startService(new Intent(this, FloatingService.class));
+            toast("Bubble on");
+        }));
+        d.addView(drawerItem("▣", "Image Studio", v1 -> {
+            closeDrawer();
+            startActivity(new Intent(this, ImageStudioActivity.class));
+        }));
+        d.addView(drawerItem("▶", "Terminal", v1 -> {
+            closeDrawer();
+            startActivity(new Intent(this, TerminalActivity.class));
+        }));
+        d.addView(drawerItem("⚙", "Settings", v1 -> {
+            closeDrawer();
+            startActivity(new Intent(this, SettingsActivity.class));
+        }));
+        d.addView(drawerItem("ⓘ", "System Info", v1 -> {
+            closeDrawer();
+            startActivity(new Intent(this, MainActivity.class));
+        }));
+
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(1, 0, 1f));
+        d.addView(spacer);
+
+        TextView version = new TextView(this);
+        version.setText("v3 · Xiaomi Pad 7");
+        version.setTextSize(11);
+        version.setTextColor(0xFF484F58);
+        version.setPadding(dp(8), 0, 0, 0);
+        d.addView(version);
+
+        return d;
+    }
+
+    private View drawerItem(String icon, String label, View.OnClickListener click) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(12), dp(14), dp(12), dp(14));
+        row.setClickable(true);
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(12));
+        bg.setColor(0x00000000);
+        row.setBackground(bg);
+
+        row.setOnTouchListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case MotionEvent.ACTION_DOWN: bg.setColor(0xFF262626); v.setBackground(bg); break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL: bg.setColor(0x00000000); v.setBackground(bg); break;
+            }
+            return false;
+        });
+
+        TextView ic = new TextView(this);
+        ic.setText(icon);
+        ic.setTextSize(15);
+        ic.setTextColor(AI_TEXT);
+        ic.setPadding(0, 0, dp(14), 0);
+        ic.setMinWidth(dp(22));
+        ic.setGravity(Gravity.CENTER);
+        row.addView(ic);
+
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setTextSize(15);
+        t.setTextColor(AI_TEXT);
+        row.addView(t);
+
+        row.setOnClickListener(click);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(2);
+        row.setLayoutParams(lp);
+        return row;
+    }
+
+    private void openDrawer() {
+        if (drawerOpen) return;
+        drawerOpen = true;
+        backdrop.setVisibility(View.VISIBLE);
+        backdrop.setAlpha(0f);
+        backdrop.animate().alpha(1f).setDuration(200).start();
+        drawer.setVisibility(View.VISIBLE);
+        drawer.setTranslationX(-dp(280));
+        drawer.animate().translationX(0).setDuration(220)
+            .setInterpolator(new DecelerateInterpolator()).start();
+    }
+
+    private void closeDrawer() {
+        if (!drawerOpen) return;
+        drawerOpen = false;
+        backdrop.animate().alpha(0f).setDuration(180)
+            .withEndAction(() -> backdrop.setVisibility(View.GONE)).start();
+        drawer.animate().translationX(-dp(280)).setDuration(200)
+            .withEndAction(() -> drawer.setVisibility(View.GONE)).start();
+    }
+
+    @Override public void onBackPressed() {
+        if (drawerOpen) { closeDrawer(); return; }
+        super.onBackPressed();
+    }
+
+    private void showEmptyState() {
+        emptyState.removeAllViews();
+        emptyState.setVisibility(View.VISIBLE);
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_star_logo);
+        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(96), dp(96));
+        logo.setLayoutParams(llp);
+        emptyState.addView(logo);
+
+        TextView hello = new TextView(this);
+        hello.setText("Hi, I'm Star");
+        hello.setTextSize(26);
+        hello.setTypeface(Typeface.DEFAULT_BOLD);
+        hello.setTextColor(AI_TEXT);
+        hello.setGravity(Gravity.CENTER);
+        hello.setPadding(0, dp(12), 0, 0);
+        emptyState.addView(hello);
+
+        TextView sub = new TextView(this);
+        sub.setText("Your autonomous Android agent");
+        sub.setTextSize(14);
+        sub.setTextColor(MUTED);
+        sub.setGravity(Gravity.CENTER);
+        sub.setPadding(0, dp(6), 0, dp(28));
+        emptyState.addView(sub);
+
+        String[] suggestions = {
+            "Open YouTube and search cats",
+            "Take a screenshot",
+            "What's my battery level?",
+            "Update yourself"
+        };
+        for (String s : suggestions) emptyState.addView(suggestionChip(s));
+    }
+
+    private View suggestionChip(String text) {
+        TextView c = new TextView(this);
+        c.setText(text);
+        c.setTextSize(14);
+        c.setTextColor(AI_TEXT);
+        c.setPadding(dp(18), dp(12), dp(18), dp(12));
+        c.setGravity(Gravity.CENTER);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(20));
+        bg.setColor(CARD);
+        bg.setStroke(dp(1), BORDER);
+        c.setBackground(bg);
+        c.setClickable(true);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(10);
+        c.setLayoutParams(lp);
+        c.setOnClickListener(v -> { input.setText(text); onSend(); });
+        return c;
+    }
+
+    private void toggleVoice() {
+        if (listening) { stopVoice(); return; }
+        if (Build.VERSION.SDK_INT >= 23 &&
+            checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 42);
+            return;
+        }
+        startVoice();
+    }
+
+    @Override public void onRequestPermissionsResult(int rc, String[] p, int[] g) {
+        super.onRequestPermissionsResult(rc, p, g);
+        if (rc == 42 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) startVoice();
+        if (rc == 88 && g.length > 0 && g[0] == PackageManager.PERMISSION_GRANTED) {
+            try {
+                startService(new Intent(this, FloatingService.class));
+                toast("Bubble started");
+            } catch (Exception e) { toast("Failed: " + e.getMessage()); }
+        }
+    }
+
+    private void startVoice() {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            toast("Speech not available"); return;
+        }
+        if (sr == null) {
+            sr = SpeechRecognizer.createSpeechRecognizer(this);
+            sr.setRecognitionListener(new RecognitionListener() {
+                @Override public void onReadyForSpeech(Bundle p) { setMicActive(true); }
+                @Override public void onBeginningOfSpeech() {}
+                @Override public void onRmsChanged(float v) {}
+                @Override public void onBufferReceived(byte[] b) {}
+                @Override public void onEndOfSpeech() { setMicActive(false); listening = false; }
+                @Override public void onError(int c) { setMicActive(false); listening = false; }
+                @Override public void onResults(Bundle r) {
+                    setMicActive(false); listening = false;
+                    ArrayList<String> a = r.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (a != null && !a.isEmpty()) { input.setText(a.get(0)); onSend(); }
+                }
+                @Override public void onPartialResults(Bundle b) {
+                    ArrayList<String> a = b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (a != null && !a.isEmpty()) input.setText(a.get(0));
+                }
+                @Override public void onEvent(int t, Bundle b) {}
+            });
+        }
+        Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        listening = true;
+        sr.startListening(i);
+    }
+
+    private void setMicActive(boolean active) {
+        ImageView iv = (ImageView) micBtn.getTag();
+        if (active) {
+            iv.setColorFilter(ACCENT);
+            micBtn.animate().scaleX(1.15f).scaleY(1.15f).setDuration(200).start();
+        } else {
+            iv.setColorFilter(null);
+            micBtn.animate().scaleX(1f).scaleY(1f).setDuration(200).start();
+        }
+    }
+
+    private void stopVoice() {
+        if (sr != null) sr.stopListening();
+        setMicActive(false); listening = false;
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        if (sr != null) { sr.destroy(); sr = null; }
+    }
+
+    private void onSend() {
+        String t = input.getText().toString().trim();
+        if (t.isEmpty() && attachedUri == null) return;
+        input.setText("");
+        if (emptyState.getVisibility() == View.VISIBLE)
+            emptyState.setVisibility(View.GONE);
+        String bubbleText = t;
+        if (attachedUri != null) {
+            String nm = Attachments.getFileName(this, attachedUri);
+            bubbleText = t.isEmpty() ? ("[📎 " + nm + "]") : (t + "\n📎 " + nm);
+        }
+        addUserBubble(bubbleText);
+        try {
+            history.put(buildUserMessage(t));
+            saveHistory();
+        } catch (Exception ignored) {}
+        attachedUri = null;
+        attachBar.setVisibility(View.GONE);
+        toolCallDepth = 0;
+        stopRequested = false;
+        askAI();
+    }
+
+    private void saveHistory() {
+        try {
+            JSONArray clean = new JSONArray();
+            for (int i = 0; i < history.length(); i++) {
+                JSONObject m = history.getJSONObject(i);
+                String role = m.optString("role");
+                if ((role.equals("user") || role.equals("assistant"))
+                    && m.optString("content", "").length() > 0) {
+                    JSONObject c = new JSONObject();
+                    c.put("role", role); c.put("content", m.optString("content"));
+                    clean.put(c);
+                }
+            }
+            prefs.setHistory(clean.toString());
+        } catch (Exception ignored) {}
+    }
+
+    private void addUserBubble(String text) {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrap.setGravity(Gravity.END);
+        wrap.setPadding(0, dp(6), 0, dp(6));
+
+        TextView b = new TextView(this);
+        b.setText(text);
+        b.setTextSize(16);
+        b.setTextColor(AI_TEXT);
+        b.setPadding(dp(16), dp(12), dp(16), dp(12));
+        b.setTextIsSelectable(true);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(20));
+        bg.setColor(USER_BUBBLE);
+        b.setBackground(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.gravity = Gravity.END;
+        b.setLayoutParams(lp);
+        b.setOnLongClickListener(v -> { copyToClip(text); return true; });
+        wrap.addView(b);
+        messages.addView(wrap);
+        scrollDown();
+    }
+
+    private void addAIBubble(String text) {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrap.setGravity(Gravity.START);
+        wrap.setPadding(0, dp(10), 0, dp(10));
+
+        TextView b = new TextView(this);
+        b.setTextSize(16);
+        b.setTextColor(AI_TEXT);
+        b.setLineSpacing(dp(4), 1f);
+        b.setTextIsSelectable(true);
+        b.setText(Markdown.render(text));
+        b.setOnLongClickListener(v -> { copyToClip(text); return true; });
+
+        wrap.addView(b);
+        messages.addView(wrap);
+        scrollDown();
+    }
+
+    private void addSystemLine(String label, String content, int color) {
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrap.setPadding(0, dp(4), 0, dp(4));
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(10), dp(14), dp(10));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(12));
+        bg.setColor(0xFF141414);
+        bg.setStroke(dp(1), 0xFF232323);
+        card.setBackground(bg);
+
+        TextView lbl = new TextView(this);
+        lbl.setText(label);
+        lbl.setTextSize(10);
+        lbl.setTextColor(color);
+        lbl.setLetterSpacing(0.15f);
+        lbl.setTypeface(Typeface.DEFAULT_BOLD);
+        card.addView(lbl);
+
+        TextView t = new TextView(this);
+        t.setText(content);
+        t.setTextSize(13);
+        t.setTypeface(Typeface.MONOSPACE);
+        t.setTextColor(0xFFB0B0B0);
+        t.setPadding(0, dp(6), 0, 0);
+        t.setTextIsSelectable(true);
+        card.addView(t);
+
+        wrap.addView(card);
+        messages.addView(wrap);
+        scrollDown();
+    }
+
+    private void addStatsLine(String s) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(10);
+        t.setTextColor(0xFF5A5A5A);
+        t.setTypeface(Typeface.MONOSPACE);
+        t.setPadding(0, 0, 0, dp(6));
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        wrap.setGravity(Gravity.START);
+        wrap.addView(t);
+        messages.addView(wrap);
+        scrollDown();
+    }
+
+    private void scrollDown() {
+        scroll.post(() -> scroll.fullScroll(ScrollView.FOCUS_DOWN));
+    }
+
+    private void copyToClip(String s) {
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(ClipData.newPlainText("Star", s));
+        toast("Copied");
+    }
+
+    private void setRunning(boolean r) {
+        running = r;
+        if (r) {
+            sendIcon.setVisibility(View.GONE);
+            stopIcon.setVisibility(View.VISIBLE);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.OVAL);
+            bg.setColor(0xFFF85149);
+            sendBtn.setBackground(bg);
+        } else {
+            stopIcon.setVisibility(View.GONE);
+            sendIcon.setVisibility(View.VISIBLE);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setShape(GradientDrawable.OVAL);
+            bg.setColor(ACCENT);
+            sendBtn.setBackground(bg);
+        }
+    }
+
+    private void stopAI() {
+        stopRequested = true;
+        toolCallDepth = MAX_TOOL_DEPTH + 1;
+        setRunning(false);
+        addSystemLine("STOPPED", "Generation cancelled", 0xFFF0883E);
+    }
+
+    private void askAI() {
+        if (stopRequested) return;
+        if (toolCallDepth > MAX_TOOL_DEPTH) {
+            addSystemLine("LIMIT", "Max tool calls reached", 0xFFF0883E);
+            setRunning(false); toolCallDepth = 0; return;
+        }
+        setRunning(true);
+
+        AIClient.send(this, prefs, history, new AIClient.Callback() {
+            @Override public void onReply(String reply) {
+                if (stopRequested) return;
+                if (reply == null || reply.trim().isEmpty() || reply.equals("null")) return;
+                runOnUiThread(() -> {
+                    if (stopRequested) return;
+                    addAIBubble(reply);
+                    try {
+                        JSONObject a = new JSONObject();
+                        a.put("role", "assistant"); a.put("content", reply);
+                        history.put(a); saveHistory();
+                    } catch (Exception ignored) {}
+                    setRunning(false); toolCallDepth = 0;
+                });
+            }
+
+            @Override public void onReplyStats(String reply, int inTok, int outTok, long ms) {
+                if (stopRequested) return;
+                if (reply == null || reply.trim().isEmpty() || reply.equals("null")) {
+                    setRunning(false); toolCallDepth = 0;
+                    return;
+                }
+                runOnUiThread(() -> {
+                    if (stopRequested) return;
+                    addAIBubble(reply);
+                    if (inTok > 0 || outTok > 0) {
+                        double tps = ms > 0 ? (outTok * 1000.0 / ms) : 0;
+                        String stats = "⬆ " + inTok + "  ⬇ " + outTok +
+                            "  ·  " + String.format("%.1f", tps) + " tok/s" +
+                            "  ·  " + String.format("%.1f", ms / 1000.0) + "s";
+                        addStatsLine(stats);
+                    }
+                    try {
+                        JSONObject a = new JSONObject();
+                        a.put("role", "assistant"); a.put("content", reply);
+                        history.put(a); saveHistory();
+                    } catch (Exception ignored) {}
+                    setRunning(false); toolCallDepth = 0;
+                });
+            }
+
+            @Override public void onToolCall(String toolName, String argsJson) {
+                if (stopRequested) return;
+                runOnUiThread(() -> {
+                    if (stopRequested) return;
+                    if (toolCallDepth > MAX_TOOL_DEPTH) return;
+                    toolCallDepth++;
+
+                    if (toolName.equals("update_self")) {
+                        addSystemLine("ACTION", "Checking updates…", 0xFFF0883E);
+                        Updater.checkAndUpdate(ChatActivity.this, prefs, msg -> {
+                            if (stopRequested) return;
+                            addSystemLine("RESULT", msg, 0xFF3FB950);
+                            try {
+                                JSONObject am = new JSONObject();
+                                am.put("role", "assistant"); am.put("content", JSONObject.NULL);
+                                JSONArray tcs = new JSONArray();
+                                JSONObject tc = new JSONObject();
+                                tc.put("id", "call_" + toolCallDepth);
+                                tc.put("type", "function");
+                                JSONObject fn = new JSONObject();
+                                fn.put("name", "update_self"); fn.put("arguments", "{}");
+                                tc.put("function", fn);
+                                tcs.put(tc); am.put("tool_calls", tcs);
+                                history.put(am);
+                                JSONObject tm = new JSONObject();
+                                tm.put("role", "tool");
+                                tm.put("tool_call_id", "call_" + toolCallDepth);
+                                tm.put("content", msg);
+                                history.put(tm);
+                            } catch (Exception ignored) {}
+                            if (msg.toLowerCase().contains("already up to date")) {
+                                addAIBubble("Already up to date.");
+                                setRunning(false); toolCallDepth = 0;
+                            } else askAI();
+                        });
+                        return;
+                    }
+
+                    if (toolName.startsWith("ui_")) {
+                        String label = toolName.replace("ui_", "").toUpperCase();
+                        addSystemLine(label, argsJson, 0xFFF0883E);
+                        new Thread(() -> {
+                            String r = runUiTool(toolName, argsJson);
+                            final String rr = r;
+                            if (stopRequested) return;
+                            runOnUiThread(() -> {
+                                if (stopRequested) return;
+                                addSystemLine("RESULT", rr, 0xFF8E8E8E);
+                                try {
+                                    JSONObject am = new JSONObject();
+                                    am.put("role", "assistant"); am.put("content", JSONObject.NULL);
+                                    JSONArray tcs = new JSONArray();
+                                    JSONObject tc = new JSONObject();
+                                    tc.put("id", "call_" + toolCallDepth);
+                                    tc.put("type", "function");
+                                    JSONObject fn = new JSONObject();
+                                    fn.put("name", toolName); fn.put("arguments", argsJson);
+                                    tc.put("function", fn);
+                                    tcs.put(tc); am.put("tool_calls", tcs);
+                                    history.put(am);
+                                    JSONObject tm = new JSONObject();
+                                    tm.put("role", "tool");
+                                    tm.put("tool_call_id", "call_" + toolCallDepth);
+                                    tm.put("content", AIClient.sanitize(rr));
+                                    history.put(tm);
+                                } catch (Exception ignored) {}
+                                askAI();
+                            });
+                        }).start();
+                        return;
+                    }
+
+                    try {
+                        String cmd = new JSONObject(argsJson).getString("command");
+                        if (agentMode) executeCommand(toolName, argsJson, cmd);
+                        else {
+                            new android.app.AlertDialog.Builder(ChatActivity.this)
+                                .setTitle("Run command?")
+                                .setMessage(cmd)
+                                .setPositiveButton("Run", (d, w) -> executeCommand(toolName, argsJson, cmd))
+                                .setNegativeButton("Cancel", (d, w) -> {
+                                    addSystemLine("DENIED", "Cancelled", 0xFFF85149);
+                                    try {
+                                        JSONObject tm = new JSONObject();
+                                        tm.put("role", "tool");
+                                        tm.put("tool_call_id", "call_" + toolCallDepth);
+                                        tm.put("content", "User denied");
+                                        history.put(tm);
+                                    } catch (Exception ignored) {}
+                                    askAI();
+                                }).show();
+                        }
+                    } catch (Exception e) {
+                        addSystemLine("ERROR", e.getMessage(), 0xFFF85149);
+                        setRunning(false);
+                    }
+                });
+            }
+
+            @Override public void onError(String err) {
+                if (stopRequested) return;
+                runOnUiThread(() -> {
+                    addSystemLine("ERROR", err, 0xFFF85149);
+                    setRunning(false); toolCallDepth = 0;
+                });
+            }
+        });
+    }
+
+    private String runUiTool(String toolName, String argsJson) {
+        try {
+            JSONObject a = new JSONObject(argsJson);
+            switch (toolName) {
+                case "ui_seq":    return StarAccessibilityService.runSequence(a.getString("seq"));
+                case "ui_dump":   return StarAccessibilityService.dump();
+                case "ui_find":   return StarAccessibilityService.findAndTap(a.getString("text"));
+                case "ui_type":   return StarAccessibilityService.typeText(a.getString("text"));
+                case "ui_press": {
+                    String kres = StarAccessibilityService.pressKey(a.getString("key"));
+                    if (kres.startsWith("SHELL:")) {
+                        Shell.run(kres.substring(6));
+                        return "Pressed " + a.getString("key") + " via shell";
+                    }
+                    return kres;
+                }
+                case "ui_scroll": return StarAccessibilityService.scroll(a.getString("direction"));
+                case "ui_tap":
+                    return StarAccessibilityService.tap(a.getInt("x"), a.getInt("y"))
+                        ? "Tapped " + a.getInt("x") + "," + a.getInt("y") : "Tap failed";
+                case "ui_swipe":
+                    return StarAccessibilityService.swipe(a.getInt("x1"), a.getInt("y1"),
+                        a.getInt("x2"), a.getInt("y2")) ? "Swiped" : "Swipe failed";
+                default: return "Unknown: " + toolName;
+            }
+        } catch (Exception e) { return "Tool error: " + e.getMessage(); }
+    }
+
+    private void executeCommand(String toolName, String argsJson, String cmd) {
+        addSystemLine("SHELL", cmd, 0xFFF0883E);
+        try {
+            JSONObject am = new JSONObject();
+            am.put("role", "assistant"); am.put("content", JSONObject.NULL);
+            JSONArray tcs = new JSONArray();
+            JSONObject tc = new JSONObject();
+            tc.put("id", "call_" + toolCallDepth);
+            tc.put("type", "function");
+            JSONObject fn = new JSONObject();
+            fn.put("name", toolName); fn.put("arguments", argsJson);
+            tc.put("function", fn);
+            tcs.put(tc); am.put("tool_calls", tcs);
+            history.put(am);
+        } catch (Exception ignored) {}
+
+        new Thread(() -> {
+            Shell.Result r = Shell.run(cmd);
+            String out = r.output.isEmpty() ? "(no output)" : r.output;
+            if (out.length() > 3000) out = out.substring(0, 3000) + "\n...(trunc)";
+            final String fo = out;
+            if (stopRequested) return;
+            runOnUiThread(() -> {
+                if (stopRequested) return;
+                addSystemLine("OUTPUT", fo.trim(), 0xFFB0B0B0);
+                try {
+                    JSONObject tm = new JSONObject();
+                    tm.put("role", "tool");
+                    tm.put("tool_call_id", "call_" + toolCallDepth);
+                    tm.put("content", AIClient.sanitize(fo));
+                    history.put(tm);
+                } catch (Exception ignored) {}
+                askAI();
+            });
+        }).start();
+    }
+
+    private void pickAttachment() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+            "image/*", "application/pdf", "text/*",
+            "application/json", "application/zip"
+        });
+        try {
+            startActivityForResult(Intent.createChooser(intent, "Attach file"), PICK_FILE);
+        } catch (Exception e) { toast("No file picker available"); }
+    }
+
+    @Override protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req == PICK_FILE && res == RESULT_OK && data != null && data.getData() != null) {
+            Uri uri = data.getData();
+            String mime = Attachments.getMime(this, uri);
+            long size = Attachments.getSize(this, uri);
+            if (size > Attachments.MAX_BYTES) {
+                toast("File too large (max 4 MB)"); return;
+            }
+            attachedUri = uri;
+            showAttachBar();
+        }
+        if (req == PICK_MODEL && res == RESULT_OK && data != null) {
+            String id = data.getStringExtra("model_id");
+            if (id != null && !id.isEmpty()) {
+                prefs.setModel(id);
+                refreshModelPill();
+                toast("Model: " + id);
+            }
+        }
+    }
+
+    private void showAttachBar() {
+        attachBar.removeAllViews();
+        attachBar.setVisibility(View.VISIBLE);
+
+        String name = Attachments.getFileName(this, attachedUri);
+        String mime = Attachments.getMime(this, attachedUri);
+        long size = Attachments.getSize(this, attachedUri);
+
+        LinearLayout chip = new LinearLayout(this);
+        chip.setOrientation(LinearLayout.HORIZONTAL);
+        chip.setGravity(Gravity.CENTER_VERTICAL);
+        chip.setPadding(dp(10), dp(6), dp(10), dp(6));
+        GradientDrawable cbg = new GradientDrawable();
+        cbg.setCornerRadius(dp(14));
+        cbg.setColor(CARD);
+        cbg.setStroke(dp(1), BORDER);
+        chip.setBackground(cbg);
+
+        TextView icon = new TextView(this);
+        icon.setText(Attachments.isImage(mime) ? "\uD83D\uDDBC" : "\uD83D\uDCC4");
+        icon.setTextSize(14);
+        icon.setPadding(0, 0, dp(8), 0);
+        chip.addView(icon);
+
+        String label = name;
+        if (label.length() > 22) label = label.substring(0, 22) + "…";
+        if (size > 0) label += "  (" + (size / 1024) + " KB)";
+
+        TextView tv = new TextView(this);
+        tv.setText(label);
+        tv.setTextSize(12);
+        tv.setTextColor(AI_TEXT);
+        chip.addView(tv);
+
+        TextView x = new TextView(this);
+        x.setText("  ✕");
+        x.setTextSize(12);
+        x.setTextColor(MUTED);
+        x.setPadding(dp(6), 0, 0, 0);
+        x.setClickable(true);
+        x.setOnClickListener(v -> {
+            attachedUri = null;
+            attachBar.setVisibility(View.GONE);
+        });
+        chip.addView(x);
+
+        attachBar.addView(chip);
+    }
+
+    private JSONObject buildUserMessage(String text) throws JSONException {
+        JSONObject m = new JSONObject();
+        m.put("role", "user");
+        if (attachedUri == null) {
+            m.put("content", text);
+            return m;
+        }
+        String mime = Attachments.getMime(this, attachedUri);
+        JSONArray parts = new JSONArray();
+
+        if (text != null && !text.isEmpty()) {
+            JSONObject tp = new JSONObject();
+            tp.put("type", "text");
+            tp.put("text", text);
+            parts.put(tp);
+        }
+
+        if (Attachments.isImage(mime)) {
+            String dataUrl = Attachments.toDataUrl(this, attachedUri);
+            if (dataUrl == null) {
+                toast("Could not read image");
+            } else {
+                JSONObject ip = new JSONObject();
+                ip.put("type", "image_url");
+                JSONObject url = new JSONObject();
+                url.put("url", dataUrl);
+                ip.put("image_url", url);
+                parts.put(ip);
+            }
+        } else {
+            // Non-image: pass path so AI can use run_shell to read it
+            String name = Attachments.getFileName(this, attachedUri);
+            JSONObject fp = new JSONObject();
+            fp.put("type", "text");
+            fp.put("text", "[Attached file: " + name + " — URI: " + attachedUri.toString() +
+                ". To read its contents, ask user to grant access or use run_shell if path is under /sdcard.]");
+            parts.put(fp);
+        }
+
+        m.put("content", parts);
+        return m;
+    }
+
+    private void autoHeal() {
+        if (StarAccessibilityService.isRunning() && ShizukuHelper.hasSecureSettings(this)) return;
+        if (!ShizukuHelper.isRunning() || !ShizukuHelper.hasPermission()) return;
+
+        // Throttle: don't run more than once every 30 seconds
+        long last = prefs.getLastHeal();
+        long now = System.currentTimeMillis();
+        if (now - last < 30000) return;
+        prefs.setLastHeal(now);
+
+        new Thread(() -> {
+            try {
+                String pkg = getPackageName();
+                Shell.run("pm grant " + pkg + " android.permission.WRITE_SECURE_SETTINGS");
+                SelfHeal.repair(ChatActivity.this, 4000);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density); }
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+}
