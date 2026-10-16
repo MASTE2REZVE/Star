@@ -160,6 +160,18 @@ public class AIClient {
             "or wants a second opinion. Returns the app's full screen text.",
             appProps, new String[]{ "app", "question" }));
 
+        // === CONCAT VIDEO TOOLS (K-B6) ===
+        // ConcatTools.schemaJson() returns a JSON array (string) of the 7 video_* tools
+        // in the exact OpenAI {type:function,function:{...}} shape buildTools() already uses.
+        try {
+            JSONArray concat = new JSONArray(ConcatTools.schemaJson());
+            for (int ci = 0; ci < concat.length(); ci++) {
+                tools.put(concat.get(ci));
+            }
+        } catch (Exception ignored) {
+            // schema unavailable (Concat not installed) - agent simply has no video_* tools
+        }
+
 return tools;
 
     }

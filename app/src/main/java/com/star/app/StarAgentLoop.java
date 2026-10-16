@@ -295,6 +295,38 @@ public class StarAgentLoop {
                     if (sname.isEmpty()) return "empty skill name";
                     if (SkillRunner.findByName(sname) == null) return "no such skill: " + sname;
                     return null;
+                // === CONCAT VIDEO TOOLS (K-B6) ===
+                case "video_project_create":
+                    if (!a.has("name")) return "missing name";
+                    return null;
+                case "video_media_import":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("filePath")) return "missing filePath";
+                    return null;
+                case "video_add_clip":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("mediaId")) return "missing mediaId";
+                    if (!a.has("startSec")) return "missing startSec";
+                    return null;
+                case "video_add_transition":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("kind")) return "missing kind";
+                    if (!a.has("durationSec")) return "missing durationSec";
+                    return null;
+                case "video_add_text":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("text")) return "missing text";
+                    if (!a.has("startSec")) return "missing startSec";
+                    if (!a.has("endSec")) return "missing endSec";
+                    return null;
+                case "video_apply_effect":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("effectId")) return "missing effectId";
+                    return null;
+                case "video_export":
+                    if (!a.has("project")) return "missing project";
+                    if (!a.has("outputPath")) return "missing outputPath";
+                    return null;
                 default:
                     return "unknown tool: " + name;
             }
@@ -408,6 +440,30 @@ public class StarAgentLoop {
                     if (r.output.length() > 4000) return r.output.substring(0, 4000) + "\n...(truncated)";
                     return r.output;
                 }
+                // === CONCAT VIDEO TOOLS (K-B6) ===
+                case "video_project_create":
+                    return ConcatTools.video_project_create(a.getString("name"));
+                case "video_media_import":
+                    return ConcatTools.video_media_import(
+                        a.getString("project"), a.getString("filePath"));
+                case "video_add_clip":
+                    return ConcatTools.video_add_clip(
+                        a.getString("project"), a.getString("mediaId"),
+                        a.optDouble("startSec", 0.0));
+                case "video_add_transition":
+                    return ConcatTools.video_add_transition(
+                        a.getString("project"), a.getString("kind"),
+                        a.optDouble("durationSec", 1.0));
+                case "video_add_text":
+                    return ConcatTools.video_add_text(
+                        a.getString("project"), a.getString("text"),
+                        a.optDouble("startSec", 0.0), a.optDouble("endSec", 3.0));
+                case "video_apply_effect":
+                    return ConcatTools.video_apply_effect(
+                        a.getString("project"), a.getString("effectId"));
+                case "video_export":
+                    return ConcatTools.video_export(
+                        a.getString("project"), a.getString("outputPath"));
                 default:
                     return "Unknown tool: " + name;
             }
