@@ -6,4 +6,9 @@
         <item name="android:navigationBarColor">@color/star_bg</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+
+    <style name="StarDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/sheet_exit</item>
+    </style>
 </resources>

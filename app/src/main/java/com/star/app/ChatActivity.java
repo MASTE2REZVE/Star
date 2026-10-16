@@ -411,6 +411,7 @@ public class ChatActivity extends Activity {
             if (running) stopAI();
             else onSend();
         });
+        PressFeedback.attach(sendBtn);
 
         sendIcon = new ImageView(this);
         sendIcon.setImageResource(R.drawable.ic_send);
