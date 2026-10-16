@@ -93,5 +93,7 @@
         android:exported="false" />
         <activity android:name=".BuilderActivity"
         android:exported="false" />
+        <activity android:name=".EffectGridActivity"
+        android:exported="false" />
     </application>
 </manifest>
