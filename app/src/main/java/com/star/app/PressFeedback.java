@@ -41,7 +41,7 @@ import android.view.View.OnTouchListener;
 import android.view.ViewGroup;
 import android.widget.EditText;
 
-class PressFeedback {
+public class PressFeedback {
 
     /** Press animation spec (G5 deliverable: scale + alpha, 100ms). */
     public static final long  DURATION_MS = 100;
