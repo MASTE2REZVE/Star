@@ -92,7 +92,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
     private final float density;
 
-    private final LayerManager layerManager = new LayerManager();
+    private volatile LayerManager layerManager = new LayerManager();
     private final Map<Tile, Integer> textures = new IdentityHashMap<>();
 
     private float brushRadius = TileManager.BRUSH_RADIUS;
@@ -180,12 +180,23 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         return onionSkin;
     }
 
+    /** Point the renderer at the frame store and adopt the current frame's layers. */
     public void setFrameManager(FrameManager manager) {
         this.frameManager = manager;
+        adoptFrameLayers();
     }
 
     public void setCurrentFrame(int frame) {
         this.currentFrame = frame > 0 ? frame : 0;
+        adoptFrameLayers();
+    }
+
+    /** Swap the active TileManagers to the LayerManager that owns the current frame. */
+    private void adoptFrameLayers() {
+        FrameManager manager = frameManager;
+        if (manager == null) return;
+        LayerManager frameLayers = manager.getFrame(currentFrame);
+        if (frameLayers != null) layerManager = frameLayers;
     }
 
     public void setViewTransform(float zoom, float panX, float panY) {
@@ -441,7 +452,11 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private void drawLayerTiles(LayerManager.Layer layer, float halfW, float halfH) {
         for (Tile tile : layer.getTiles().getTiles().values()) {
             Integer id = textures.get(tile);
-            if (id == null || id == 0) continue;
+            if (id == null || id == 0) {
+                uploadTile(tile);
+                id = textures.get(tile);
+                if (id == null || id == 0) continue;
+            }
 
             float x0 = -halfW + (tile.getTileX() * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
             float x1 = -halfW + ((tile.getTileX() + 1) * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);

@@ -171,29 +171,20 @@ public class AnimStudioActivity extends Activity {
     }
 
     private void seedSampleData() {
-        layerManager = canvasHost.getLayerManager();
-        layerManager.clear();
-        layerManager.addLayer("Line Art");
-        layerManager.addLayer("Colour");
-        LayerManager.Layer bg = layerManager.addLayer("BG Sketch");
-        bg.setOpacity(60);
-        layerManager.setActiveLayer(0);
-        refreshLayers();
-
         canvasHost.setCanvasSize(1920, 1080);
+
+        frameManager = new FrameManager(TOTAL_FRAMES);
+        seedFrames(frameManager);
 
         timeline.setTotalFrames(TOTAL_FRAMES);
         timeline.setFps(START_FPS);
-        frameManager = new FrameManager(TOTAL_FRAMES);
-        seedFrames(frameManager);
         timeline.setFrameManager(frameManager);
-        timeline.setCurrentFrame(START_FRAME);
 
         onionBar.setFps(START_FPS);
-        onionBar.setFrame(START_FRAME, TOTAL_FRAMES);
 
         canvasHost.setFrameManager(frameManager);
-        canvasHost.setCurrentFrame(START_FRAME);
+
+        applyFrame(START_FRAME);
 
         brushPanel.setSizeDp(8);
         brushPanel.setOpacity(100);
@@ -202,29 +193,22 @@ public class AnimStudioActivity extends Activity {
         updateColorIndicator(0xFF000000);
     }
 
-    /** Give sample frames real layer data so the timeline shows keyframes. */
+    /** Give every frame its own named layer stack so drawings are independent. */
     private void seedFrames(FrameManager frameManager) {
-        int[][] keyed = {
-            { 0, 24, 48, 72, 96 },  // L1 - line art
-            { 0, 48, 96 },          // L2 - colour
-            { 0 }                   // BG - background
-        };
         for (int frame = 0; frame < TOTAL_FRAMES; frame++) {
-            int depth = 0;
-            for (int track = 0; track < keyed.length; track++) {
-                if (containsFrame(keyed[track], frame)) depth = track + 1;
-            }
             LayerManager frameLayers = frameManager.getFrame(frame);
             if (frameLayers == null) frameLayers = frameManager.createFrame(frame);
-            while (frameLayers.size() < depth) frameLayers.addLayer();
+            seedBaseLayers(frameLayers);
         }
     }
 
-    private boolean containsFrame(int[] frames, int frame) {
-        for (int f : frames) {
-            if (f == frame) return true;
-        }
-        return false;
+    private void seedBaseLayers(LayerManager frameLayers) {
+        frameLayers.clear();
+        frameLayers.addLayer("Line Art");
+        frameLayers.addLayer("Colour");
+        LayerManager.Layer bg = frameLayers.addLayer("BG Sketch");
+        bg.setOpacity(60);
+        frameLayers.setActiveLayer(0);
     }
 
     private void wireBehaviour() {
@@ -246,7 +230,7 @@ public class AnimStudioActivity extends Activity {
         onionBar.setOnOnion(() ->
             canvasHost.setOnionSkinEnabled(onionBar.isOnionEnabled()));
 
-        timeline.setOnFrameChange(frame -> onionBar.setFrame(frame, TOTAL_FRAMES));
+        timeline.setOnFrameChange(frame -> applyFrame(frame));
 
         colorPanel.setOnChange(this::updateColorIndicator);
 
@@ -328,9 +312,17 @@ public class AnimStudioActivity extends Activity {
     }
 
     private void applyFrame(int frame) {
-        onionBar.setFrame(frame, TOTAL_FRAMES);
-        timeline.setCurrentFrame(frame);
-        canvasHost.setCurrentFrame(frame);
+        int f = frame;
+        if (f < 0) f = 0;
+        if (f > TOTAL_FRAMES - 1) f = TOTAL_FRAMES - 1;
+        onionBar.setFrame(f, TOTAL_FRAMES);
+        timeline.setCurrentFrame(f);
+        canvasHost.setCurrentFrame(f);
+        LayerManager frameLayers = frameManager != null ? frameManager.getFrame(f) : null;
+        if (frameLayers != null && frameLayers != layerManager) {
+            layerManager = frameLayers;
+            refreshLayers();
+        }
     }
 
     private void updateColorIndicator(int argb) {
