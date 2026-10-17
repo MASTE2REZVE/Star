@@ -44,6 +44,7 @@ public class AnimStudioActivity extends Activity {
 
     private CanvasHost canvasHost;
     private LayerPanel layerPanel;
+    private LayerManager layerManager;
     private BrushPanel brushPanel;
     private ColorPanel colorPanel;
     private OnionBar onionBar;
@@ -189,11 +190,13 @@ public class AnimStudioActivity extends Activity {
     }
 
     private void seedSampleData() {
-        List<LayerPanel.LayerStub> layers = new ArrayList<>();
-        layers.add(new LayerPanel.LayerStub("line", "Line Art", true, false, 100));
-        layers.add(new LayerPanel.LayerStub("colour", "Colour", true, false, 100));
-        layers.add(new LayerPanel.LayerStub("bg", "BG Sketch", true, false, 60));
-        layerPanel.setLayers(layers);
+        layerManager = new LayerManager();
+        layerManager.addLayer("Line Art");
+        layerManager.addLayer("Colour");
+        LayerManager.Layer bg = layerManager.addLayer("BG Sketch");
+        bg.setOpacity(60);
+        layerManager.setActiveLayer(0);
+        refreshLayers();
 
         canvasHost.setCanvasSize(1920, 1080);
 
@@ -255,6 +258,29 @@ public class AnimStudioActivity extends Activity {
         canvasHost.setBrushRadius(brushPanel.getSizeDp());
         canvasHost.setBrushOpacity(brushPanel.getOpacity());
 
+        layerPanel.setOnAdd(id -> {
+            layerManager.addLayer();
+            layerManager.setActiveLayer(layerManager.size() - 1);
+            refreshLayers();
+        });
+        layerPanel.setOnDuplicate(id -> {
+            int index = indexOfLayer(id);
+            if (index < 0) return;
+            layerManager.duplicateLayer(index);
+            refreshLayers();
+        });
+        layerPanel.setOnDelete(id -> {
+            int index = indexOfLayer(id);
+            if (index < 0) return;
+            layerManager.removeLayer(index);
+            refreshLayers();
+        });
+        layerPanel.setOnSelect(id -> {
+            int index = indexOfLayer(id);
+            if (index < 0) return;
+            layerManager.setActiveLayer(index);
+        });
+
         toolRail.setOnSelect(code -> {
             if ("U".equals(code)) {
                 canvasHost.undo();
@@ -266,6 +292,34 @@ public class AnimStudioActivity extends Activity {
                 activeTool = code;
             }
         });
+    }
+
+    private void refreshLayers() {
+        List<LayerPanel.LayerStub> stubs = new ArrayList<>();
+        for (LayerManager.Layer layer : layerManager.getLayers()) {
+            stubs.add(new LayerPanel.LayerStub(
+                String.valueOf(layer.getId()),
+                layer.getName(),
+                layer.isVisible(),
+                layer.isLocked(),
+                layer.getOpacity()));
+        }
+        layerPanel.setLayers(stubs);
+        LayerManager.Layer active = layerManager.getActiveLayer();
+        layerPanel.setSelected(active != null ? String.valueOf(active.getId()) : null);
+    }
+
+    private int indexOfLayer(String id) {
+        if (id == null) return -1;
+        try {
+            int target = Integer.parseInt(id);
+            List<LayerManager.Layer> all = layerManager.getLayers();
+            for (int i = 0; i < all.size(); i++) {
+                if (all.get(i).getId() == target) return i;
+            }
+        } catch (NumberFormatException ignored) {
+        }
+        return -1;
     }
 
     private void stepFrame(int delta) {

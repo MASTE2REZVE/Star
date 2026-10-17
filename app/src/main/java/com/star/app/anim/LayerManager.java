@@ -84,6 +84,19 @@ public class LayerManager {
         return layer;
     }
 
+    public synchronized Layer duplicateLayer(int index) {
+        Layer source = getLayer(index);
+        if (source == null) return null;
+        Layer copy = new Layer(nextId++, source.getName() + " copy");
+        copy.setVisible(source.isVisible());
+        copy.setLocked(source.isLocked());
+        copy.setOpacity(source.getOpacity());
+        copy.getTiles().copyFrom(source.getTiles());
+        layers.add(index + 1, copy);
+        activeIndex = index + 1;
+        return copy;
+    }
+
     public synchronized Layer removeLayer(int index) {
         if (index < 0 || index >= layers.size()) return null;
         Layer removed = layers.remove(index);

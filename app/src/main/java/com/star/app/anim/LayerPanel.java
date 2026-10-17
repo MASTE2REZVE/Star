@@ -167,6 +167,19 @@ public class LayerPanel extends LinearLayout {
         this.onDelete = l;
     }
 
+    public void setSelected(String id) {
+        if (id == null) {
+            selectedId = null;
+            for (Row r : rowViews) {
+                r.bg.setSelected(false);
+            }
+            syncOpacity();
+            return;
+        }
+        select(id, false);
+        syncOpacity();
+    }
+
     private void rebuild() {
         rows.removeAllViews();
         rowViews.clear();

@@ -4,6 +4,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -212,6 +213,23 @@ public class TileManager {
         brushCanvas.drawLine(x0 - ox, y0 - oy, x1 - ox, y1 - oy, brushStroke);
         brushCanvas.setBitmap(null);
         dirty.add(tile);
+    }
+
+    public synchronized void copyFrom(TileManager other) {
+        clear();
+        if (other == null) return;
+        for (Tile src : other.getTiles().values()) {
+            Bitmap srcBitmap = src.getBitmap();
+            if (srcBitmap == null || srcBitmap.isRecycled()) continue;
+            Tile dst = getOrCreate(src.getTileX(), src.getTileY());
+            Bitmap dstBitmap = dst.getBitmap();
+            if (dstBitmap == null || dstBitmap.isRecycled()) continue;
+            brushCanvas.setBitmap(dstBitmap);
+            brushCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.SRC);
+            brushCanvas.drawBitmap(srcBitmap, 0f, 0f, blitPaint);
+            brushCanvas.setBitmap(null);
+            dirty.add(dst);
+        }
     }
 
     public synchronized List<Tile> consumeDirty() {
