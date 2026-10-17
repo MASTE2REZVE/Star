@@ -19,6 +19,8 @@ public class TileManager {
 
     public static final float BRUSH_RADIUS = 12.0f;
 
+    public static final int BRUSH_ALPHA = 255;
+
     private final HashMap<String, Tile> tiles = new HashMap<>();
 
     private final Set<Tile> dirty = Collections.newSetFromMap(new IdentityHashMap<Tile, Boolean>());
@@ -34,6 +36,9 @@ public class TileManager {
     private float lastX;
     private float lastY;
     private boolean haveLast;
+
+    private float brushRadius = BRUSH_RADIUS;
+    private int brushAlpha = BRUSH_ALPHA;
 
     public TileManager() {
         brushFill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -149,6 +154,28 @@ public class TileManager {
         return history.canRedo();
     }
 
+    public synchronized void setBrushRadius(float radius) {
+        if (radius <= 0f) radius = 1f;
+        brushRadius = radius;
+        brushStroke.setStrokeWidth(radius * 2.0f);
+    }
+
+    public float getBrushRadius() {
+        return brushRadius;
+    }
+
+    public synchronized void setBrushAlpha(int alpha) {
+        if (alpha < 0) alpha = 0;
+        if (alpha > 255) alpha = 255;
+        brushAlpha = alpha;
+        brushFill.setAlpha(brushAlpha);
+        brushStroke.setAlpha(brushAlpha);
+    }
+
+    public int getBrushAlpha() {
+        return brushAlpha;
+    }
+
     public synchronized void applySnapshots(List<HistoryManager.Snapshot> snapshots) {
         if (snapshots == null || snapshots.isEmpty()) return;
         for (HistoryManager.Snapshot s : snapshots) {
@@ -170,7 +197,7 @@ public class TileManager {
         float ox = tile.getTileX() * (float) TILE_SIZE;
         float oy = tile.getTileY() * (float) TILE_SIZE;
         brushCanvas.setBitmap(bitmap);
-        brushCanvas.drawCircle(x - ox, y - oy, BRUSH_RADIUS, brushFill);
+        brushCanvas.drawCircle(x - ox, y - oy, brushRadius, brushFill);
         brushCanvas.setBitmap(null);
         dirty.add(tile);
     }

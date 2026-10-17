@@ -127,6 +127,14 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         tileManager.redo();
     }
 
+    public void setBrushRadius(float radius) {
+        tileManager.setBrushRadius(radius);
+    }
+
+    public void setBrushAlpha(int alpha) {
+        tileManager.setBrushAlpha(alpha);
+    }
+
     public void setViewTransform(float zoom, float panX, float panY) {
         this.viewZoom = zoom > 0f ? zoom : 1f;
         this.viewPanX = panX;

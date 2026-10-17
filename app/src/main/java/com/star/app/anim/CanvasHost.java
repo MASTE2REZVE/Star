@@ -143,6 +143,16 @@ public class CanvasHost extends FrameLayout {
     public void redo() {
         surface.queueEvent(() -> renderer.redo());
     }
+
+    public void setBrushRadius(final float radius) {
+        surface.queueEvent(() -> renderer.setBrushRadius(radius));
+    }
+
+    public void setBrushOpacity(final int percent) {
+        final int alpha = Math.round(clamp(percent, 0f, 100f) * 255f / 100f);
+        surface.queueEvent(() -> renderer.setBrushAlpha(alpha));
+    }
+
     public void onPause() {
         surface.onPause();
     }

@@ -248,6 +248,13 @@ public class AnimStudioActivity extends Activity {
 
         colorPanel.setOnChange(this::updateColorIndicator);
 
+        brushPanel.setOnChange(() -> {
+            canvasHost.setBrushRadius(brushPanel.getSizeDp());
+            canvasHost.setBrushOpacity(brushPanel.getOpacity());
+        });
+        canvasHost.setBrushRadius(brushPanel.getSizeDp());
+        canvasHost.setBrushOpacity(brushPanel.getOpacity());
+
         toolRail.setOnSelect(code -> {
             if ("U".equals(code)) {
                 canvasHost.undo();
