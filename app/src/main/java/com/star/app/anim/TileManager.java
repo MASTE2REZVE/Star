@@ -25,8 +25,11 @@ public class TileManager {
 
     private final Canvas brushCanvas = new Canvas();
 
+    private final HistoryManager history = new HistoryManager();
+
     private final Paint brushFill;
     private final Paint brushStroke;
+    private final Paint blitPaint;
 
     private float lastX;
     private float lastY;
@@ -43,6 +46,9 @@ public class TileManager {
         brushStroke.setStrokeWidth(BRUSH_RADIUS * 2.0f);
         brushStroke.setStrokeCap(Paint.Cap.ROUND);
         brushStroke.setStrokeJoin(Paint.Join.ROUND);
+
+        blitPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        blitPaint.setFilterBitmap(false);
     }
 
     private static String key(int tileX, int tileY) {
@@ -98,6 +104,7 @@ public class TileManager {
     }
 
     public synchronized List<Tile> beginStroke(float x, float y) {
+        history.beginAction();
         haveLast = false;
         return strokeTo(x, y);
     }
@@ -122,12 +129,44 @@ public class TileManager {
     }
 
     public synchronized void endStroke() {
+        history.commitAction();
         haveLast = false;
+    }
+
+    public synchronized boolean undo() {
+        return history.undo(this);
+    }
+
+    public synchronized boolean redo() {
+        return history.redo(this);
+    }
+
+    public synchronized boolean canUndo() {
+        return history.canUndo();
+    }
+
+    public synchronized boolean canRedo() {
+        return history.canRedo();
+    }
+
+    public synchronized void applySnapshots(List<HistoryManager.Snapshot> snapshots) {
+        if (snapshots == null || snapshots.isEmpty()) return;
+        for (HistoryManager.Snapshot s : snapshots) {
+            Tile tile = getOrCreate(s.getTileX(), s.getTileY());
+            Bitmap dst = tile.getBitmap();
+            Bitmap src = s.getBitmap();
+            if (dst == null || dst.isRecycled() || src == null || src.isRecycled()) continue;
+            brushCanvas.setBitmap(dst);
+            brushCanvas.drawBitmap(src, 0f, 0f, blitPaint);
+            brushCanvas.setBitmap(null);
+            dirty.add(tile);
+        }
     }
 
     private void drawDot(Tile tile, float x, float y) {
         Bitmap bitmap = tile.getBitmap();
         if (bitmap == null || bitmap.isRecycled()) return;
+        history.snapshot(tile);
         float ox = tile.getTileX() * (float) TILE_SIZE;
         float oy = tile.getTileY() * (float) TILE_SIZE;
         brushCanvas.setBitmap(bitmap);
@@ -139,6 +178,7 @@ public class TileManager {
     private void drawSegment(Tile tile, float x0, float y0, float x1, float y1) {
         Bitmap bitmap = tile.getBitmap();
         if (bitmap == null || bitmap.isRecycled()) return;
+        history.snapshot(tile);
         float ox = tile.getTileX() * (float) TILE_SIZE;
         float oy = tile.getTileY() * (float) TILE_SIZE;
         brushCanvas.setBitmap(bitmap);
@@ -155,6 +195,7 @@ public class TileManager {
     }
 
     public synchronized void clear() {
+        history.clear();
         for (Tile tile : tiles.values()) {
             tile.recycle();
         }

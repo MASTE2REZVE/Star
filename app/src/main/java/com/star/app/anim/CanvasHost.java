@@ -136,6 +136,13 @@ public class CanvasHost extends FrameLayout {
         surface.onResume();
     }
 
+    public void undo() {
+        surface.queueEvent(() -> renderer.undo());
+    }
+
+    public void redo() {
+        surface.queueEvent(() -> renderer.redo());
+    }
     public void onPause() {
         surface.onPause();
     }

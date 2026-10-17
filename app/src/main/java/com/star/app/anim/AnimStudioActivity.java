@@ -48,7 +48,10 @@ public class AnimStudioActivity extends Activity {
     private ColorPanel colorPanel;
     private OnionBar onionBar;
     private TimelinePanel timeline;
+    private ToolRail toolRail;
     private View colorIndicator;
+
+    private String activeTool = "B";
 
     private int fps = START_FPS;
     private boolean playing = false;
@@ -103,10 +106,9 @@ public class AnimStudioActivity extends Activity {
         middle.setOrientation(LinearLayout.HORIZONTAL);
         middle.setLayoutParams(new LinearLayout.LayoutParams(MATCH, 0, 1f));
 
-        ToolRail toolRail = new ToolRail(this);
+        toolRail = new ToolRail(this);
         toolRail.setId(R.id.tool_rail);
         middle.addView(toolRail);
-
         LinearLayout center = new LinearLayout(this);
         center.setOrientation(LinearLayout.VERTICAL);
         center.setLayoutParams(new LinearLayout.LayoutParams(0, MATCH, 1f));
@@ -245,6 +247,18 @@ public class AnimStudioActivity extends Activity {
         timeline.setOnFrameChange(frame -> onionBar.setFrame(frame, TOTAL_FRAMES));
 
         colorPanel.setOnChange(this::updateColorIndicator);
+
+        toolRail.setOnSelect(code -> {
+            if ("U".equals(code)) {
+                canvasHost.undo();
+                toolRail.setSelected(activeTool);
+            } else if ("R".equals(code)) {
+                canvasHost.redo();
+                toolRail.setSelected(activeTool);
+            } else {
+                activeTool = code;
+            }
+        });
     }
 
     private void stepFrame(int delta) {

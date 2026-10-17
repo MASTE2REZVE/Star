@@ -119,6 +119,14 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         return tileManager;
     }
 
+    public void undo() {
+        tileManager.undo();
+    }
+
+    public void redo() {
+        tileManager.redo();
+    }
+
     public void setViewTransform(float zoom, float panX, float panY) {
         this.viewZoom = zoom > 0f ? zoom : 1f;
         this.viewPanX = panX;
