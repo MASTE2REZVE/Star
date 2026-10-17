@@ -37,6 +37,7 @@ public class OnionBar extends LinearLayout {
 
     private final float density;
 
+    private TextView onionButton;
     private TextView playButton;
     private TextView frameCounter;
     private TextView fpsDisplay;
@@ -49,12 +50,14 @@ public class OnionBar extends LinearLayout {
     private boolean playing = false;
     private boolean loopActive = false;
     private boolean tagged = false;
+    private boolean onionOn = false;
 
     private Runnable onPlay;
     private Runnable onPause;
     private Runnable onPrev;
     private Runnable onNext;
     private Runnable onTag;
+    private Runnable onOnion;
     private IntConsumer onFps;
     private IntConsumer onFrameAdvance;
 
@@ -97,6 +100,16 @@ public class OnionBar extends LinearLayout {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.MATCH_PARENT));
         addView(label);
+
+        onionButton = glyphButton("Onion", 11f);
+        onionButton.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) {
+                onionOn = !onionOn;
+                updateOnion();
+                if (onOnion != null) onOnion.run();
+            }
+        });
+        addView(onionButton);
 
         TextView prev = glyphButton(GLYPH_PREV, 12f);
         prev.setOnClickListener(new OnClickListener() {
@@ -200,6 +213,21 @@ public class OnionBar extends LinearLayout {
 
     public void setOnTag(Runnable l) {
         this.onTag = l;
+    }
+
+    public void setOnOnion(Runnable l) {
+        this.onOnion = l;
+    }
+
+    public boolean isOnionEnabled() {
+        return onionOn;
+    }
+
+    public void setOnionEnabled(boolean value) {
+        if (this.onionOn == value) return;
+        this.onionOn = value;
+        updateOnion();
+        if (onOnion != null) onOnion.run();
     }
 
     public void setFrame(int current, int total) {
@@ -330,6 +358,10 @@ public class OnionBar extends LinearLayout {
 
     private void updateTag() {
         tagButton.setTextColor(tagged ? ACCENT : TEXT);
+    }
+
+    private void updateOnion() {
+        onionButton.setTextColor(onionOn ? ACCENT : TEXT);
     }
 
     private Drawable glyphBackground(final boolean active) {

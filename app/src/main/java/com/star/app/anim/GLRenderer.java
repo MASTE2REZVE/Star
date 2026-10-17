@@ -8,6 +8,7 @@ import android.opengl.Matrix;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -41,6 +42,15 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     public static final int CANVAS_W = 1920;
     public static final int CANVAS_H = 1080;
 
+    private static final int ONION_RANGE = 2;
+    private static final float ONION_ALPHA = 0.30f;
+    private static final float ONION_PREV_R = 0.90f;
+    private static final float ONION_PREV_G = 0.18f;
+    private static final float ONION_PREV_B = 0.18f;
+    private static final float ONION_NEXT_R = 0.20f;
+    private static final float ONION_NEXT_G = 0.80f;
+    private static final float ONION_NEXT_B = 0.32f;
+
     private static final String VERTEX_SHADER =
         "attribute vec2 aPos;\n"
         + "attribute vec2 aTex;\n"
@@ -59,10 +69,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         + "uniform vec4 uColor;\n"
         + "uniform float uUseTex;\n"
         + "uniform float uLayerAlpha;\n"
+        + "uniform float uTint;\n"
         + "varying vec2 vTex;\n"
         + "void main() {\n"
-        + "    vec4 t = texture2D(uTex, vTex) * uColor;\n"
-        + "    vec4 c = mix(uColor, t, uUseTex);\n"
+        + "    vec4 t = texture2D(uTex, vTex);\n"
+        + "    vec3 rgb = mix(t.rgb * uColor.rgb, uColor.rgb, uTint);\n"
+        + "    vec4 c = mix(uColor, vec4(rgb, t.a), uUseTex);\n"
         + "    c.a *= uLayerAlpha;\n"
         + "    gl_FragColor = c;\n"
         + "}\n";
@@ -99,7 +111,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private int uTexLoc;
     private int uUseTexLoc;
     private int uLayerAlphaLoc;
+    private int uTintLoc;
     private boolean ready;
+
+    private volatile boolean onionSkin = false;
+    private volatile FrameManager frameManager;
+    private volatile int currentFrame = 0;
 
     private final float[] proj = new float[16];
 
@@ -153,6 +170,22 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         brushAlpha = alpha;
         TileManager tiles = getTileManager();
         if (tiles != null) tiles.setBrushAlpha(brushAlpha);
+    }
+
+    public void setOnionSkinEnabled(boolean enabled) {
+        this.onionSkin = enabled;
+    }
+
+    public boolean isOnionSkinEnabled() {
+        return onionSkin;
+    }
+
+    public void setFrameManager(FrameManager manager) {
+        this.frameManager = manager;
+    }
+
+    public void setCurrentFrame(int frame) {
+        this.currentFrame = frame > 0 ? frame : 0;
     }
 
     public void setViewTransform(float zoom, float panX, float panY) {
@@ -214,9 +247,11 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         uTexLoc = GLES30.glGetUniformLocation(program, "uTex");
         uUseTexLoc = GLES30.glGetUniformLocation(program, "uUseTex");
         uLayerAlphaLoc = GLES30.glGetUniformLocation(program, "uLayerAlpha");
+        uTintLoc = GLES30.glGetUniformLocation(program, "uTint");
         ready = program != 0 && aPosLoc >= 0 && aTexLoc >= 0
             && uProjLoc >= 0 && uRectLoc >= 0 && uColorLoc >= 0
-            && uTexLoc >= 0 && uUseTexLoc >= 0 && uLayerAlphaLoc >= 0;
+            && uTexLoc >= 0 && uUseTexLoc >= 0 && uLayerAlphaLoc >= 0
+            && uTintLoc >= 0;
         Matrix.setIdentityM(proj, 0);
     }
 
@@ -291,6 +326,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private void drawRect(float[] rect, float r, float g, float b, float a) {
         bindQuad(quadTexBuffer);
         GLES30.glUniform1f(uUseTexLoc, 0.0f);
+        GLES30.glUniform1f(uTintLoc, 0.0f);
         GLES30.glUniform1f(uLayerAlphaLoc, 1.0f);
         GLES30.glUniform4f(uRectLoc, rect[0], rect[1], rect[2], rect[3]);
         GLES30.glUniform4f(uColorLoc, r, g, b, a);
@@ -307,10 +343,16 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
     private void drawLayers(float halfW, float halfH) {
         List<LayerManager.Layer> layers = layerManager.getLayers();
+        List<OnionFrame> ghosts = collectOnionFrames();
 
         Set<Tile> live = Collections.newSetFromMap(new IdentityHashMap<Tile, Boolean>());
         for (LayerManager.Layer layer : layers) {
             live.addAll(layer.getTiles().getTiles().values());
+        }
+        for (OnionFrame ghost : ghosts) {
+            for (LayerManager.Layer layer : ghost.layers.getLayers()) {
+                live.addAll(layer.getTiles().getTiles().values());
+            }
         }
         releaseStaleTextures(live);
 
@@ -318,6 +360,14 @@ public class GLRenderer implements GLSurfaceView.Renderer {
             List<Tile> dirty = layer.getTiles().consumeDirty();
             for (Tile tile : dirty) {
                 uploadTile(tile);
+            }
+        }
+        for (OnionFrame ghost : ghosts) {
+            for (LayerManager.Layer layer : ghost.layers.getLayers()) {
+                List<Tile> dirty = layer.getTiles().consumeDirty();
+                for (Tile tile : dirty) {
+                    uploadTile(tile);
+                }
             }
         }
         if (live.isEmpty()) return;
@@ -328,6 +378,10 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform1i(uTexLoc, 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
 
+        for (OnionFrame ghost : ghosts) {
+            drawOnionFrame(ghost, halfW, halfH);
+        }
+
         for (int i = layers.size() - 1; i >= 0; i--) {
             LayerManager.Layer layer = layers.get(i);
             if (!layer.isVisible()) continue;
@@ -335,29 +389,86 @@ public class GLRenderer implements GLSurfaceView.Renderer {
             float alpha = layer.getOpacity() / 100f;
             if (alpha < 0f) alpha = 0f;
             if (alpha > 1f) alpha = 1f;
+            GLES30.glUniform1f(uTintLoc, 0.0f);
             GLES30.glUniform4f(uColorLoc, 1f, 1f, 1f, 1f);
             GLES30.glUniform1f(uLayerAlphaLoc, alpha);
-
-            for (Tile tile : layer.getTiles().getTiles().values()) {
-                Integer id = textures.get(tile);
-                if (id == null || id == 0) continue;
-
-                float x0 = -halfW + (tile.getTileX() * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
-                float x1 = -halfW + ((tile.getTileX() + 1) * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
-                float yTop = halfH - (tile.getTileY() * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
-                float yBot = halfH - ((tile.getTileY() + 1) * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
-
-                fillTileBuffer(x0, yBot, x1, yTop);
-                bindQuad(tileBuffer);
-
-                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, id);
-                GLES30.glUniform4f(uRectLoc, x0, yBot, x1, yTop);
-                GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
-            }
+            drawLayerTiles(layer, halfW, halfH);
         }
 
         GLES30.glDisable(GLES30.GL_BLEND);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0);
+    }
+
+    /** Previous frames tinted red, next frames tinted green, drawn behind the live frame. */
+    private List<OnionFrame> collectOnionFrames() {
+        List<OnionFrame> out = new ArrayList<>();
+        FrameManager manager = frameManager;
+        if (!onionSkin || manager == null) return out;
+        int current = currentFrame;
+        for (int d = ONION_RANGE; d >= 1; d--) {
+            LayerManager frame = manager.getFrame(current - d);
+            if (frame != null) {
+                out.add(new OnionFrame(frame,
+                    ONION_PREV_R, ONION_PREV_G, ONION_PREV_B));
+            }
+        }
+        for (int d = ONION_RANGE; d >= 1; d--) {
+            LayerManager frame = manager.getFrame(current + d);
+            if (frame != null) {
+                out.add(new OnionFrame(frame,
+                    ONION_NEXT_R, ONION_NEXT_G, ONION_NEXT_B));
+            }
+        }
+        return out;
+    }
+
+    private void drawOnionFrame(OnionFrame ghost, float halfW, float halfH) {
+        List<LayerManager.Layer> layers = ghost.layers.getLayers();
+        GLES30.glUniform1f(uTintLoc, 1.0f);
+        GLES30.glUniform4f(uColorLoc, ghost.r, ghost.g, ghost.b, 1f);
+        for (int i = layers.size() - 1; i >= 0; i--) {
+            LayerManager.Layer layer = layers.get(i);
+            if (!layer.isVisible()) continue;
+
+            float alpha = layer.getOpacity() / 100f;
+            if (alpha < 0f) alpha = 0f;
+            if (alpha > 1f) alpha = 1f;
+            GLES30.glUniform1f(uLayerAlphaLoc, alpha * ONION_ALPHA);
+            drawLayerTiles(layer, halfW, halfH);
+        }
+    }
+
+    private void drawLayerTiles(LayerManager.Layer layer, float halfW, float halfH) {
+        for (Tile tile : layer.getTiles().getTiles().values()) {
+            Integer id = textures.get(tile);
+            if (id == null || id == 0) continue;
+
+            float x0 = -halfW + (tile.getTileX() * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
+            float x1 = -halfW + ((tile.getTileX() + 1) * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
+            float yTop = halfH - (tile.getTileY() * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
+            float yBot = halfH - ((tile.getTileY() + 1) * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
+
+            fillTileBuffer(x0, yBot, x1, yTop);
+            bindQuad(tileBuffer);
+
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, id);
+            GLES30.glUniform4f(uRectLoc, x0, yBot, x1, yTop);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
+        }
+    }
+
+    private static final class OnionFrame {
+        final LayerManager layers;
+        final float r;
+        final float g;
+        final float b;
+
+        OnionFrame(LayerManager layers, float r, float g, float b) {
+            this.layers = layers;
+            this.r = r;
+            this.g = g;
+            this.b = b;
+        }
     }
 
     private void releaseStaleTextures(Set<Tile> live) {

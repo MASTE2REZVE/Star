@@ -140,6 +140,18 @@ public class CanvasHost extends FrameLayout {
         return renderer.getLayerManager();
     }
 
+    public void setOnionSkinEnabled(final boolean enabled) {
+        surface.queueEvent(() -> renderer.setOnionSkinEnabled(enabled));
+    }
+
+    public void setFrameManager(final FrameManager manager) {
+        surface.queueEvent(() -> renderer.setFrameManager(manager));
+    }
+
+    public void setCurrentFrame(final int frame) {
+        surface.queueEvent(() -> renderer.setCurrentFrame(frame));
+    }
+
     public void undo() {
         surface.queueEvent(() -> renderer.undo());
     }

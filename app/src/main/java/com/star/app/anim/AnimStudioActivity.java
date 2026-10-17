@@ -192,6 +192,9 @@ public class AnimStudioActivity extends Activity {
         onionBar.setFps(START_FPS);
         onionBar.setFrame(START_FRAME, TOTAL_FRAMES);
 
+        canvasHost.setFrameManager(frameManager);
+        canvasHost.setCurrentFrame(START_FRAME);
+
         brushPanel.setSizeDp(8);
         brushPanel.setOpacity(100);
 
@@ -240,6 +243,8 @@ public class AnimStudioActivity extends Activity {
             fps = value > 0 ? value : 1;
             timeline.setFps(fps);
         });
+        onionBar.setOnOnion(() ->
+            canvasHost.setOnionSkinEnabled(onionBar.isOnionEnabled()));
 
         timeline.setOnFrameChange(frame -> onionBar.setFrame(frame, TOTAL_FRAMES));
 
@@ -325,6 +330,7 @@ public class AnimStudioActivity extends Activity {
     private void applyFrame(int frame) {
         onionBar.setFrame(frame, TOTAL_FRAMES);
         timeline.setCurrentFrame(frame);
+        canvasHost.setCurrentFrame(frame);
     }
 
     private void updateColorIndicator(int argb) {
