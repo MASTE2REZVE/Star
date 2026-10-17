@@ -15,7 +15,7 @@ public class Tile {
         this.tileX = tileX;
         this.tileY = tileY;
         this.bitmap = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888);
-        this.bitmap.eraseColor(Color.WHITE);
+        this.bitmap.eraseColor(Color.TRANSPARENT);
     }
 
     public int getTileX() {

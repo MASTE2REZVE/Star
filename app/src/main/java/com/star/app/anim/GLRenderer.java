@@ -77,8 +77,11 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
     private final float density;
 
-    private final TileManager tileManager = new TileManager();
+    private final LayerManager layerManager = new LayerManager();
     private final Map<Tile, Integer> textures = new IdentityHashMap<>();
+
+    private float brushRadius = TileManager.BRUSH_RADIUS;
+    private int brushAlpha = TileManager.BRUSH_ALPHA;
 
     private FloatBuffer quadTexBuffer;
     private FloatBuffer tileBuffer;
@@ -115,24 +118,37 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         this.density = density > 0f ? density : DEFAULT_DENSITY;
     }
 
+    public LayerManager getLayerManager() {
+        return layerManager;
+    }
+
     public TileManager getTileManager() {
-        return tileManager;
+        LayerManager.Layer active = layerManager.getActiveLayer();
+        return active != null ? active.getTiles() : null;
     }
 
     public void undo() {
-        tileManager.undo();
+        TileManager tiles = getTileManager();
+        if (tiles != null) tiles.undo();
     }
 
     public void redo() {
-        tileManager.redo();
+        TileManager tiles = getTileManager();
+        if (tiles != null) tiles.redo();
     }
 
     public void setBrushRadius(float radius) {
-        tileManager.setBrushRadius(radius);
+        brushRadius = radius > 0f ? radius : 1f;
+        TileManager tiles = getTileManager();
+        if (tiles != null) tiles.setBrushRadius(brushRadius);
     }
 
     public void setBrushAlpha(int alpha) {
-        tileManager.setBrushAlpha(alpha);
+        if (alpha < 0) alpha = 0;
+        if (alpha > 255) alpha = 255;
+        brushAlpha = alpha;
+        TileManager tiles = getTileManager();
+        if (tiles != null) tiles.setBrushAlpha(brushAlpha);
     }
 
     public void setViewTransform(float zoom, float panX, float panY) {
@@ -146,15 +162,19 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         if (paperHalfW <= 0f || paperHalfH <= 0f || viewWidth <= 0 || viewHeight <= 0) {
             return;
         }
+        TileManager tiles = getTileManager();
+        if (tiles == null) return;
+        tiles.setBrushRadius(brushRadius);
+        tiles.setBrushAlpha(brushAlpha);
         float[] p = screenToCanvas(x, y);
         if (action == android.view.MotionEvent.ACTION_DOWN) {
-            tileManager.beginStroke(p[0], p[1]);
+            tiles.beginStroke(p[0], p[1]);
         } else if (action == android.view.MotionEvent.ACTION_MOVE) {
-            tileManager.strokeTo(p[0], p[1]);
+            tiles.strokeTo(p[0], p[1]);
         } else if (action == android.view.MotionEvent.ACTION_UP
             || action == android.view.MotionEvent.ACTION_CANCEL) {
-            tileManager.strokeTo(p[0], p[1]);
-            tileManager.endStroke();
+            tiles.strokeTo(p[0], p[1]);
+            tiles.endStroke();
         }
     }
 
@@ -246,7 +266,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         drawRect(border, BORDER_R, BORDER_G, BORDER_B, 1.0f);
         drawRect(paper, PAPER_R, PAPER_G, PAPER_B, 1.0f);
 
-        drawTiles(halfW, halfH);
+        drawLayers(halfW, halfH);
 
         GLES30.glDisableVertexAttribArray(aPosLoc);
         GLES30.glDisableVertexAttribArray(aTexLoc);
@@ -279,48 +299,62 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         buffer.position(0);
     }
 
-    private void drawTiles(float halfW, float halfH) {
-        Map<String, Tile> current = tileManager.getTiles();
-        releaseStaleTextures(current);
+    private void drawLayers(float halfW, float halfH) {
+        List<LayerManager.Layer> layers = layerManager.getLayers();
 
-        List<Tile> dirty = tileManager.consumeDirty();
-        for (Tile tile : dirty) {
-            uploadTile(tile);
+        Set<Tile> live = Collections.newSetFromMap(new IdentityHashMap<Tile, Boolean>());
+        for (LayerManager.Layer layer : layers) {
+            live.addAll(layer.getTiles().getTiles().values());
         }
-        if (current.isEmpty()) return;
+        releaseStaleTextures(live);
 
-        GLES30.glUniform1f(uUseTexLoc, 1.0f);
-        GLES30.glUniform4f(uColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-        GLES30.glUniform1i(uTexLoc, 0);
-        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        for (LayerManager.Layer layer : layers) {
+            List<Tile> dirty = layer.getTiles().consumeDirty();
+            for (Tile tile : dirty) {
+                uploadTile(tile);
+            }
+        }
+        if (live.isEmpty()) return;
+
         GLES30.glEnable(GLES30.GL_BLEND);
         GLES30.glBlendFunc(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA);
+        GLES30.glUniform1f(uUseTexLoc, 1.0f);
+        GLES30.glUniform1i(uTexLoc, 0);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
 
-        for (Tile tile : current.values()) {
-            Integer id = textures.get(tile);
-            if (id == null || id == 0) continue;
+        for (int i = layers.size() - 1; i >= 0; i--) {
+            LayerManager.Layer layer = layers.get(i);
+            if (!layer.isVisible()) continue;
 
-            float x0 = -halfW + (tile.getTileX() * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
-            float x1 = -halfW + ((tile.getTileX() + 1) * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
-            float yTop = halfH - (tile.getTileY() * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
-            float yBot = halfH - ((tile.getTileY() + 1) * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
+            float alpha = layer.getOpacity() / 100f;
+            if (alpha < 0f) alpha = 0f;
+            if (alpha > 1f) alpha = 1f;
+            GLES30.glUniform4f(uColorLoc, 1f, 1f, 1f, alpha);
 
-            fillTileBuffer(x0, yBot, x1, yTop);
-            bindQuad(tileBuffer);
+            for (Tile tile : layer.getTiles().getTiles().values()) {
+                Integer id = textures.get(tile);
+                if (id == null || id == 0) continue;
 
-            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, id);
-            GLES30.glUniform4f(uRectLoc, x0, yBot, x1, yTop);
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
+                float x0 = -halfW + (tile.getTileX() * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
+                float x1 = -halfW + ((tile.getTileX() + 1) * (float) Tile.SIZE / CANVAS_W) * (2.0f * halfW);
+                float yTop = halfH - (tile.getTileY() * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
+                float yBot = halfH - ((tile.getTileY() + 1) * (float) Tile.SIZE / CANVAS_H) * (2.0f * halfH);
+
+                fillTileBuffer(x0, yBot, x1, yTop);
+                bindQuad(tileBuffer);
+
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, id);
+                GLES30.glUniform4f(uRectLoc, x0, yBot, x1, yTop);
+                GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
+            }
         }
 
         GLES30.glDisable(GLES30.GL_BLEND);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0);
     }
 
-    private void releaseStaleTextures(Map<String, Tile> current) {
+    private void releaseStaleTextures(Set<Tile> live) {
         if (textures.isEmpty()) return;
-        Set<Tile> live = Collections.newSetFromMap(new IdentityHashMap<Tile, Boolean>());
-        live.addAll(current.values());
         Iterator<Map.Entry<Tile, Integer>> it = textures.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<Tile, Integer> e = it.next();

@@ -190,7 +190,8 @@ public class AnimStudioActivity extends Activity {
     }
 
     private void seedSampleData() {
-        layerManager = new LayerManager();
+        layerManager = canvasHost.getLayerManager();
+        layerManager.clear();
         layerManager.addLayer("Line Art");
         layerManager.addLayer("Colour");
         LayerManager.Layer bg = layerManager.addLayer("BG Sketch");
