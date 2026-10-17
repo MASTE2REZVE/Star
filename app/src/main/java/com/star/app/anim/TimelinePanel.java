@@ -38,6 +38,7 @@ public class TimelinePanel extends LinearLayout {
 
     private final TimelineRuler ruler;
     private final LinearLayout tracksContainer;
+    private final TrackRow[] trackRows = new TrackRow[TRACK_LABELS.length];
     private final PlayheadView playhead;
 
     private int totalFrames = 60;
@@ -79,6 +80,7 @@ public class TimelinePanel extends LinearLayout {
             row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(TRACK_DP)));
             tracksContainer.addView(row);
+            trackRows[i] = row;
         }
         column.addView(tracksContainer);
 
@@ -120,6 +122,12 @@ public class TimelinePanel extends LinearLayout {
 
     public void setOnFrameChange(IntConsumer l) {
         this.onFrameChange = l;
+    }
+
+    public void setKeyframes(int trackIndex, int... frames) {
+        if (trackIndex < 0 || trackIndex >= trackRows.length) return;
+        TrackRow row = trackRows[trackIndex];
+        if (row != null) row.setKeyframes(frames);
     }
 
     private void setFrameInternal(int frame, boolean notify) {
@@ -270,6 +278,7 @@ public class TimelinePanel extends LinearLayout {
         private final String label;
         private final int index;
         private int totalFrames = 60;
+        private int[] keyframes;
 
         TrackRow(Context c, int index) {
             super(c);
@@ -310,7 +319,18 @@ public class TimelinePanel extends LinearLayout {
             invalidate();
         }
 
+        void setKeyframes(int[] frames) {
+            keyframes = frames;
+            invalidate();
+        }
+
         private boolean isKeyframe(int frame) {
+            if (keyframes != null) {
+                for (int k : keyframes) {
+                    if (k == frame) return true;
+                }
+                return false;
+            }
             if (index == 0) return frame % 5 == 0;
             if (index == 1) return frame % 10 == 0;
             return frame == 0;

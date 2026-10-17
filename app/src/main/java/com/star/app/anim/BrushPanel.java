@@ -222,8 +222,22 @@ public class BrushPanel extends LinearLayout {
         return PRESETS[presetIndex];
     }
 
+    public void setSizeDp(int sizeDp) {
+        sizeBar.setProgress(clamp(sizeDp, MIN_SIZE_DP, MAX_SIZE_DP));
+        updateValue(0);
+    }
+
+    public void setOpacity(int percent) {
+        opacityBar.setProgress(clamp(percent, 0, 100));
+        updateValue(1);
+    }
+
     public void setOnChange(Runnable r) {
         this.onChange = r;
+    }
+
+    private int clamp(int v, int lo, int hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
     }
 
     private int dp(int v) {
