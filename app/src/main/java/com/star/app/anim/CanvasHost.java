@@ -2,252 +2,55 @@ package com.star.app.anim;
 
 import android.content.Context;
 import android.opengl.GLSurfaceView;
-import android.util.AttributeSet;
 import android.view.MotionEvent;
-import android.view.ScaleGestureDetector;
-import android.view.ViewGroup;
-import android.widget.FrameLayout;
+import android.view.View;
 
-public class CanvasHost extends FrameLayout {
-
-    private static final int BG = 0xFF0F0F0F;
-
-    private static final float MIN_ZOOM = 0.05f;
-    private static final float MAX_ZOOM = 20f;
-
-    public interface FloatConsumer {
-        void accept(float value);
-    }
-
-    private final GLSurfaceView surface;
+public class CanvasHost extends GLSurfaceView {
     private final GLRenderer renderer;
-    private final float density;
 
-    private volatile int canvasWidth = 1240;
-    private volatile int canvasHeight = 1754;
-    private volatile float zoom = 1f;
-    private volatile float offsetX = 0f;
-    private volatile float offsetY = 0f;
+    public CanvasHost(Context context) {
+        super(context);
+        setEGLContextClientVersion(3);
+        renderer = new GLRenderer();
+        setRenderer(renderer);
+        setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
 
-    private FloatConsumer zoomCallback;
-
-    private boolean haveFocus = false;
-    private float lastFocusX = 0f;
-    private float lastFocusY = 0f;
-
-    private boolean strokeActive = false;
-    private float lastTouchX = 0f;
-    private float lastTouchY = 0f;
-
-    private final ScaleGestureDetector scaleDetector;
-
-    public CanvasHost(Context c) {
-        this(c, null);
-    }
-
-    public CanvasHost(Context c, AttributeSet attrs) {
-        super(c, attrs);
-        this.density = getResources().getDisplayMetrics().density;
-
-        surface = new GLSurfaceView(c);
-        surface.setEGLContextClientVersion(3);
-        surface.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
-        renderer = new GLRenderer(density);
-        surface.setRenderer(renderer);
-        surface.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
-        surface.setBackgroundColor(BG);
-        surface.setFocusable(true);
-        surface.setClickable(false);
-        surface.setLongClickable(false);
-        surface.setLayoutParams(new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.MATCH_PARENT));
-
-        scaleDetector = new ScaleGestureDetector(c,
-            new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                @Override public boolean onScale(ScaleGestureDetector d) {
-                    float before = zoom;
-                    zoom = clamp(zoom * d.getScaleFactor(), MIN_ZOOM, MAX_ZOOM);
-                    if (zoom != before) {
-                        float vw = surface.getWidth();
-                        float vh = surface.getHeight();
-                        float cx = vw * 0.5f;
-                        float cy = vh * 0.5f;
-                        float r = zoom / before;
-                        offsetX = (d.getFocusX() - cx) * (1f - r) + r * offsetX;
-                        offsetY = (d.getFocusY() - cy) * (1f - r) + r * offsetY;
-                        notifyZoom();
-                        pushView();
-                    }
-                    return true;
+        setOnTouchListener(new OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent event) {
+                float x = event.getX();
+                float y = event.getY();
+                int action = event.getActionMasked();
+                queueEvent(() -> {
+                    if (action == MotionEvent.ACTION_DOWN) renderer.onTouchStart(x, y);
+                    else if (action == MotionEvent.ACTION_MOVE) renderer.onTouchMove(x, y);
+                    else if (action == MotionEvent.ACTION_UP) renderer.onTouchEnd();
+                });
+                if (action == MotionEvent.ACTION_DOWN
+                        || action == MotionEvent.ACTION_MOVE
+                        || action == MotionEvent.ACTION_UP) {
+                    CanvasHost.this.requestRender();
                 }
-            });
-
-        addView(surface);
-    }
-
-    @Override
-    public boolean onTouchEvent(MotionEvent e) {
-        scaleDetector.onTouchEvent(e);
-
-        final int action = e.getActionMasked();
-        int count = e.getPointerCount();
-        if (count >= 2) {
-            if (strokeActive) {
-                strokeActive = false;
-                final float sx = lastTouchX;
-                final float sy = lastTouchY;
-                surface.queueEvent(() -> renderer.onTouch(sx, sy, MotionEvent.ACTION_CANCEL));
+                return true;
             }
-            float cx = (e.getX(0) + e.getX(1)) / 2f;
-            float cy = (e.getY(0) + e.getY(1)) / 2f;
-            if (haveFocus) {
-                offsetX += cx - lastFocusX;
-                offsetY += cy - lastFocusY;
-                pushView();
-            }
-            lastFocusX = cx;
-            lastFocusY = cy;
-            haveFocus = true;
-            return true;
-        }
-
-        if (action == MotionEvent.ACTION_DOWN
-            || action == MotionEvent.ACTION_MOVE
-            || action == MotionEvent.ACTION_UP) {
-            final float x = e.getX();
-            final float y = e.getY();
-            lastTouchX = x;
-            lastTouchY = y;
-            strokeActive = action != MotionEvent.ACTION_UP;
-            surface.queueEvent(() -> renderer.onTouch(x, y, action));
-        }
-
-        if (action == MotionEvent.ACTION_UP
-            || action == MotionEvent.ACTION_CANCEL
-            || action == MotionEvent.ACTION_POINTER_UP) {
-            haveFocus = false;
-            strokeActive = false;
-        }
-        return true;
+        });
     }
 
-    public void onResume() {
-        surface.onResume();
+    public LayerManager getLayerManager() { return renderer.getLayerManager(); }
+    public TileManager getTileManager() {
+        LayerManager.Layer active = renderer.getLayerManager().getActiveLayer();
+        return active != null ? active.getTiles() : null;
     }
-
-    public LayerManager getLayerManager() {
-        return renderer.getLayerManager();
-    }
-
-    public void setOnionSkinEnabled(final boolean enabled) {
-        surface.queueEvent(() -> renderer.setOnionSkinEnabled(enabled));
-    }
-
-    public void setFrameManager(final FrameManager manager) {
-        surface.queueEvent(() -> renderer.setFrameManager(manager));
-    }
-
-    public void setCurrentFrame(final int frame) {
-        surface.queueEvent(() -> renderer.setCurrentFrame(frame));
-    }
-
-    public void undo() {
-        surface.queueEvent(() -> renderer.undo());
-    }
-
-    public void redo() {
-        surface.queueEvent(() -> renderer.redo());
-    }
-
-    public void setBrushRadius(final float radius) {
-        surface.queueEvent(() -> renderer.setBrushRadius(radius));
-    }
-
-    public void setBrushOpacity(final int percent) {
-        final int alpha = Math.round(clamp(percent, 0f, 100f) * 255f / 100f);
-        surface.queueEvent(() -> renderer.setBrushAlpha(alpha));
-    }
-
-    public void exportFramePng(final int frameNumber, final ExportHelper.Listener listener) {
-        final Context ctx = getContext().getApplicationContext();
-        surface.queueEvent(() -> renderer.requestFrameCapture(bitmap ->
-            new Thread(() -> {
-                String path = null;
-                String error = null;
-                try {
-                    path = ExportHelper.savePng(ctx, bitmap, frameNumber);
-                } catch (Exception e) {
-                    error = e.getMessage();
-                } finally {
-                    if (!bitmap.isRecycled()) bitmap.recycle();
-                }
-                final String out = path;
-                final String err = error;
-                if (listener != null) {
-                    post(() -> listener.onResult(out, err));
-                }
-            }, "star-export").start()));
-    }
-
-    public void onPause() {
-        surface.onPause();
-    }
-
-    @Override
-    protected void onAttachedToWindow() {
-        super.onAttachedToWindow();
-        surface.onResume();
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        surface.onPause();
-        super.onDetachedFromWindow();
-    }
-
-    public void setCanvasSize(int w, int h) {
-        if (w <= 0 || h <= 0) return;
-        this.canvasWidth = w;
-        this.canvasHeight = h;
-    }
-
-    public float getZoom() {
-        return zoom;
-    }
-
-    public void resetView() {
-        zoom = 1f;
-        offsetX = 0f;
-        offsetY = 0f;
-        notifyZoom();
-        pushView();
-    }
-
-    private void pushView() {
-        final float z = zoom;
-        final float ox = offsetX;
-        final float oy = offsetY;
-        surface.queueEvent(() -> renderer.setViewTransform(z, ox, oy));
-    }
-
-    @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-        resetView();
-    }
-
-    public void setZoomCallback(FloatConsumer l) {
-        this.zoomCallback = l;
-        if (l != null) l.accept(zoom);
-    }
-
-    private void notifyZoom() {
-        FloatConsumer l = zoomCallback;
-        if (l != null) l.accept(zoom);
-    }
-
-    private float clamp(float v, float lo, float hi) {
-        return v < lo ? lo : (v > hi ? hi : v);
+    
+    public void undo() { queueEvent(() -> renderer.undo()); }
+    public void redo() { queueEvent(() -> renderer.redo()); }
+    public void setCanvasSize(int w, int h) { queueEvent(() -> renderer.setCanvasSize(w, h)); }
+    public void setFrameManager(FrameManager fm) { queueEvent(() -> renderer.setFrameManager(fm)); }
+    public void setOnionSkinEnabled(boolean enabled) { queueEvent(() -> renderer.setOnionSkinEnabled(enabled)); }
+    public void setBrushRadius(int radius) { queueEvent(() -> renderer.setBrushRadius(radius)); }
+    public void setBrushOpacity(int opacity) { queueEvent(() -> renderer.setBrushOpacity(opacity)); }
+    public void setCurrentFrame(int frame) { queueEvent(() -> renderer.setCurrentFrame(frame)); }
+    public void exportFramePng(int frame, ExportHelper.Listener listener) {
+        queueEvent(() -> renderer.exportFramePng(frame, listener));
     }
 }

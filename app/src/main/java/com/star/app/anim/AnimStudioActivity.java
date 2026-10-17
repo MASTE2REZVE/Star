@@ -229,8 +229,9 @@ public class AnimStudioActivity extends Activity {
             fps = value > 0 ? value : 1;
             timeline.setFps(fps);
         });
-        onionBar.setOnOnion(() ->
-            canvasHost.setOnionSkinEnabled(onionBar.isOnionEnabled()));
+        onionBar.setOnOnion(() -> {
+            canvasHost.setOnionSkinEnabled(onionBar.isOnionEnabled());
+        });
 
         timeline.setOnFrameChange(frame -> applyFrame(frame));
 
