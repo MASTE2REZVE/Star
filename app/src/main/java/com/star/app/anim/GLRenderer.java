@@ -125,6 +125,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private volatile float viewPanY = 0f;
     private boolean haveView = false;
 
+    public interface FrameCapture {
+        void onCaptured(Bitmap bitmap);
+    }
+
+    private volatile FrameCapture captureRequest;
+
     private int viewWidth;
     private int viewHeight;
 
@@ -197,6 +203,10 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         if (manager == null) return;
         LayerManager frameLayers = manager.getFrame(currentFrame);
         if (frameLayers != null) layerManager = frameLayers;
+    }
+
+    public void requestFrameCapture(FrameCapture capture) {
+        this.captureRequest = capture;
     }
 
     public void setViewTransform(float zoom, float panX, float panY) {
@@ -321,6 +331,13 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
         GLES30.glDisableVertexAttribArray(aPosLoc);
         GLES30.glDisableVertexAttribArray(aTexLoc);
+
+        FrameCapture capture = captureRequest;
+        if (capture != null) {
+            captureRequest = null;
+            Bitmap shot = ExportHelper.readFramebuffer(viewWidth, viewHeight);
+            if (shot != null) capture.onCaptured(shot);
+        }
     }
 
     private void buildProjection() {

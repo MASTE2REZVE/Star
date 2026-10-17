@@ -17,6 +17,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.star.app.R;
 
@@ -39,6 +40,7 @@ public class AnimStudioActivity extends Activity {
     private static final int START_FRAME = 12;
 
     private CanvasHost canvasHost;
+    private TopMenuBar topBar;
     private LayerPanel layerPanel;
     private LayerManager layerManager;
     private FrameManager frameManager;
@@ -80,7 +82,7 @@ public class AnimStudioActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
 
-        TopMenuBar topBar = new TopMenuBar(this);
+        topBar = new TopMenuBar(this);
         topBar.setId(R.id.top_bar);
         root.addView(topBar);
 
@@ -269,6 +271,8 @@ public class AnimStudioActivity extends Activity {
             layerManager.getLayers().get(index).setOpacity(opacity);
         });
 
+        topBar.setOnExport(this::exportCurrentFrame);
+
         toolRail.setOnSelect(code -> {
             if ("U".equals(code)) {
                 canvasHost.undo();
@@ -278,6 +282,22 @@ public class AnimStudioActivity extends Activity {
                 toolRail.setSelected(activeTool);
             } else {
                 activeTool = code;
+            }
+        });
+    }
+
+    private void exportCurrentFrame() {
+        if (canvasHost == null) return;
+        final int frame = onionBar != null ? onionBar.getFrame() : 0;
+        canvasHost.exportFramePng(frame, new ExportHelper.Listener() {
+            @Override public void onResult(String path, String error) {
+                if (path != null) {
+                    Toast.makeText(AnimStudioActivity.this,
+                        "Exported " + path, Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(AnimStudioActivity.this,
+                        "Export failed: " + error, Toast.LENGTH_LONG).show();
+                }
             }
         });
     }

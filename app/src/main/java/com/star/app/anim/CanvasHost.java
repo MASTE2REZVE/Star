@@ -169,6 +169,27 @@ public class CanvasHost extends FrameLayout {
         surface.queueEvent(() -> renderer.setBrushAlpha(alpha));
     }
 
+    public void exportFramePng(final int frameNumber, final ExportHelper.Listener listener) {
+        final Context ctx = getContext().getApplicationContext();
+        surface.queueEvent(() -> renderer.requestFrameCapture(bitmap ->
+            new Thread(() -> {
+                String path = null;
+                String error = null;
+                try {
+                    path = ExportHelper.savePng(ctx, bitmap, frameNumber);
+                } catch (Exception e) {
+                    error = e.getMessage();
+                } finally {
+                    if (!bitmap.isRecycled()) bitmap.recycle();
+                }
+                final String out = path;
+                final String err = error;
+                if (listener != null) {
+                    post(() -> listener.onResult(out, err));
+                }
+            }, "star-export").start()));
+    }
+
     public void onPause() {
         surface.onPause();
     }

@@ -30,6 +30,7 @@ public class TopMenuBar extends LinearLayout {
     private static final String[] PLACEHOLDERS = {"New", "Open", "Save", "Export"};
 
     private Consumer<String> onMenu;
+    private Runnable onExport;
     private TextView docName;
     private TextView zoomIndicator;
 
@@ -73,6 +74,25 @@ public class TopMenuBar extends LinearLayout {
     }
 
     private void addRightItems() {
+        TextView export = new TextView(getContext());
+        export.setText("Export PNG");
+        export.setTextSize(12f);
+        export.setTextColor(0xFF7CB3FF);
+        export.setTypeface(Typeface.MONOSPACE);
+        export.setGravity(Gravity.CENTER);
+        export.setPadding(dp(12), 0, dp(12), 0);
+        export.setClickable(true);
+        export.setLayoutParams(new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT));
+        export.setOnClickListener(new OnClickListener() {
+            @Override public void onClick(View v) {
+                if (onExport != null) onExport.run();
+            }
+        });
+        PressFeedback.attach(export);
+        addView(export);
+
         docName = new TextView(getContext());
         docName.setText("Untitled 1");
         docName.setTextSize(12f);
@@ -111,6 +131,10 @@ public class TopMenuBar extends LinearLayout {
 
     public void setOnMenu(Consumer<String> l) {
         this.onMenu = l;
+    }
+
+    public void setOnExport(Runnable l) {
+        this.onExport = l;
     }
 
     public void setDocumentName(String name) {
