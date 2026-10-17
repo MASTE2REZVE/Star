@@ -9,6 +9,8 @@ import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.*;
 
+import com.star.app.anim.AnimStudioActivity;
+
 public class StudioActivity extends Activity {
     private static final int BG = 0xFF0F0F0F;
     private static final int CARD = 0xFF1E1E1E;
@@ -191,6 +193,10 @@ public class StudioActivity extends Activity {
     private void build2DTab() {
         sectionTitle("2D");
         description("Sprites, tilesets, animation, cut-out characters.");
+        navTile("Anim Studio", ACCENT, () -> {
+            try { startActivity(new Intent(this, AnimStudioActivity.class)); }
+            catch (Throwable t) { toast("Not installed"); }
+        });
         featureGrid(new String[][]{
             { "Sprite sheets",         "free · procedural" },
             { "Tilesets / levels",     "free · WFC" },
@@ -276,6 +282,38 @@ public class StudioActivity extends Activity {
 
             contentHost.addView(row);
         }
+    }
+
+    private void navTile(String label, int color, Runnable onClick) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), dp(14), dp(14), dp(14));
+        row.setBackground(rounded(CARD, BORDER));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(8);
+        row.setLayoutParams(lp);
+
+        TextView name = new TextView(this);
+        name.setText(label);
+        name.setTextSize(14);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(TEXT);
+        name.setLayoutParams(new LinearLayout.LayoutParams(0,
+            ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(name);
+
+        TextView chevron = new TextView(this);
+        chevron.setText("\u203A");
+        chevron.setTextSize(20);
+        chevron.setTextColor(color);
+        row.addView(chevron);
+
+        row.setClickable(true);
+        row.setOnClickListener(v -> onClick.run());
+        PressFeedback.attach(row);
+        contentHost.addView(row);
     }
 
     private void noticeBox(String title, String body) {
