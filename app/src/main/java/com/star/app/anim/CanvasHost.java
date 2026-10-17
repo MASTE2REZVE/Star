@@ -35,6 +35,10 @@ public class CanvasHost extends FrameLayout {
     private float lastFocusX = 0f;
     private float lastFocusY = 0f;
 
+    private boolean strokeActive = false;
+    private float lastTouchX = 0f;
+    private float lastTouchY = 0f;
+
     private final ScaleGestureDetector scaleDetector;
 
     public CanvasHost(Context c) {
@@ -65,11 +69,15 @@ public class CanvasHost extends FrameLayout {
                     float before = zoom;
                     zoom = clamp(zoom * d.getScaleFactor(), MIN_ZOOM, MAX_ZOOM);
                     if (zoom != before) {
-                        float focusX = d.getFocusX();
-                        float focusY = d.getFocusY();
-                        offsetX = focusX - (focusX - offsetX) * (zoom / before);
-                        offsetY = focusY - (focusY - offsetY) * (zoom / before);
+                        float vw = surface.getWidth();
+                        float vh = surface.getHeight();
+                        float cx = vw * 0.5f;
+                        float cy = vh * 0.5f;
+                        float r = zoom / before;
+                        offsetX = (d.getFocusX() - cx) * (1f - r) + r * offsetX;
+                        offsetY = (d.getFocusY() - cy) * (1f - r) + r * offsetY;
                         notifyZoom();
+                        pushView();
                     }
                     return true;
                 }
@@ -85,11 +93,18 @@ public class CanvasHost extends FrameLayout {
         final int action = e.getActionMasked();
         int count = e.getPointerCount();
         if (count >= 2) {
+            if (strokeActive) {
+                strokeActive = false;
+                final float sx = lastTouchX;
+                final float sy = lastTouchY;
+                surface.queueEvent(() -> renderer.onTouch(sx, sy, MotionEvent.ACTION_CANCEL));
+            }
             float cx = (e.getX(0) + e.getX(1)) / 2f;
             float cy = (e.getY(0) + e.getY(1)) / 2f;
             if (haveFocus) {
                 offsetX += cx - lastFocusX;
                 offsetY += cy - lastFocusY;
+                pushView();
             }
             lastFocusX = cx;
             lastFocusY = cy;
@@ -102,11 +117,17 @@ public class CanvasHost extends FrameLayout {
             || action == MotionEvent.ACTION_UP) {
             final float x = e.getX();
             final float y = e.getY();
+            lastTouchX = x;
+            lastTouchY = y;
+            strokeActive = action != MotionEvent.ACTION_UP;
             surface.queueEvent(() -> renderer.onTouch(x, y, action));
         }
 
-        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+        if (action == MotionEvent.ACTION_UP
+            || action == MotionEvent.ACTION_CANCEL
+            || action == MotionEvent.ACTION_POINTER_UP) {
             haveFocus = false;
+            strokeActive = false;
         }
         return true;
     }
@@ -142,15 +163,24 @@ public class CanvasHost extends FrameLayout {
     }
 
     public void resetView() {
-        int vw = surface.getWidth();
-        int vh = surface.getHeight();
-        if (vw <= 0 || vh <= 0) return;
-        float pad = dp(32);
-        float fit = Math.min((vw - pad) / canvasWidth, (vh - pad) / canvasHeight);
-        zoom = clamp(fit, MIN_ZOOM, MAX_ZOOM);
-        offsetX = (vw - canvasWidth * zoom) / 2f;
-        offsetY = (vh - canvasHeight * zoom) / 2f;
+        zoom = 1f;
+        offsetX = 0f;
+        offsetY = 0f;
         notifyZoom();
+        pushView();
+    }
+
+    private void pushView() {
+        final float z = zoom;
+        final float ox = offsetX;
+        final float oy = offsetY;
+        surface.queueEvent(() -> renderer.setViewTransform(z, ox, oy));
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        resetView();
     }
 
     public void setZoomCallback(FloatConsumer l) {
@@ -165,9 +195,5 @@ public class CanvasHost extends FrameLayout {
 
     private float clamp(float v, float lo, float hi) {
         return v < lo ? lo : (v > hi ? hi : v);
-    }
-
-    private int dp(int v) {
-        return (int) (v * density + 0.5f);
     }
 }

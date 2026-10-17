@@ -3,6 +3,7 @@ package com.star.app.anim;
 import android.graphics.Bitmap;
 import android.opengl.GLES30;
 import android.opengl.GLSurfaceView;
+import android.opengl.Matrix;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -43,11 +44,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private static final String VERTEX_SHADER =
         "attribute vec2 aPos;\n"
         + "attribute vec2 aTex;\n"
+        + "uniform mat4 uProj;\n"
         + "uniform vec4 uRect;\n"
         + "varying vec2 vTex;\n"
         + "void main() {\n"
         + "    vec2 p = uRect.xy + aPos * (uRect.zw - uRect.xy);\n"
-        + "    gl_Position = vec4(p, 0.0, 1.0);\n"
+        + "    gl_Position = uProj * vec4(p, 0.0, 1.0);\n"
         + "    vTex = aTex;\n"
         + "}\n";
 
@@ -85,11 +87,19 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private int program;
     private int aPosLoc;
     private int aTexLoc;
+    private int uProjLoc;
     private int uRectLoc;
     private int uColorLoc;
     private int uTexLoc;
     private int uUseTexLoc;
     private boolean ready;
+
+    private final float[] proj = new float[16];
+
+    private volatile float viewZoom = 1f;
+    private volatile float viewPanX = 0f;
+    private volatile float viewPanY = 0f;
+    private boolean haveView = false;
 
     private int viewWidth;
     private int viewHeight;
@@ -109,6 +119,13 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         return tileManager;
     }
 
+    public void setViewTransform(float zoom, float panX, float panY) {
+        this.viewZoom = zoom > 0f ? zoom : 1f;
+        this.viewPanX = panX;
+        this.viewPanY = panY;
+        this.haveView = true;
+    }
+
     public synchronized void onTouch(float x, float y, int action) {
         if (paperHalfW <= 0f || paperHalfH <= 0f || viewWidth <= 0 || viewHeight <= 0) {
             return;
@@ -118,7 +135,8 @@ public class GLRenderer implements GLSurfaceView.Renderer {
             tileManager.beginStroke(p[0], p[1]);
         } else if (action == android.view.MotionEvent.ACTION_MOVE) {
             tileManager.strokeTo(p[0], p[1]);
-        } else if (action == android.view.MotionEvent.ACTION_UP) {
+        } else if (action == android.view.MotionEvent.ACTION_UP
+            || action == android.view.MotionEvent.ACTION_CANCEL) {
             tileManager.strokeTo(p[0], p[1]);
             tileManager.endStroke();
         }
@@ -127,8 +145,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private float[] screenToCanvas(float x, float y) {
         float ndcX = x / viewWidth * 2.0f - 1.0f;
         float ndcY = 1.0f - y / viewHeight * 2.0f;
-        float u = (ndcX / paperHalfW + 1.0f) * 0.5f;
-        float v = (paperHalfH - ndcY) / (2.0f * paperHalfH);
+        float tx = viewPanX / viewWidth * 2.0f;
+        float ty = -viewPanY / viewHeight * 2.0f;
+        float bx = (ndcX - tx) / viewZoom;
+        float by = (ndcY - ty) / viewZoom;
+        float u = (bx / paperHalfW + 1.0f) * 0.5f;
+        float v = (paperHalfH - by) / (2.0f * paperHalfH);
         return new float[] { u * CANVAS_W, v * CANVAS_H };
     }
 
@@ -146,12 +168,15 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         program = link(vs, fs);
         aPosLoc = GLES30.glGetAttribLocation(program, "aPos");
         aTexLoc = GLES30.glGetAttribLocation(program, "aTex");
+        uProjLoc = GLES30.glGetUniformLocation(program, "uProj");
         uRectLoc = GLES30.glGetUniformLocation(program, "uRect");
         uColorLoc = GLES30.glGetUniformLocation(program, "uColor");
         uTexLoc = GLES30.glGetUniformLocation(program, "uTex");
         uUseTexLoc = GLES30.glGetUniformLocation(program, "uUseTex");
         ready = program != 0 && aPosLoc >= 0 && aTexLoc >= 0
-            && uRectLoc >= 0 && uColorLoc >= 0 && uTexLoc >= 0 && uUseTexLoc >= 0;
+            && uProjLoc >= 0 && uRectLoc >= 0 && uColorLoc >= 0
+            && uTexLoc >= 0 && uUseTexLoc >= 0;
+        Matrix.setIdentityM(proj, 0);
     }
 
     private static FloatBuffer directFloatBuffer(float[] data) {
@@ -197,6 +222,8 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         float[] border = { -halfW - bHalfX, -halfH - bHalfY, halfW + bHalfX, halfH + bHalfY };
 
         GLES30.glUseProgram(program);
+        buildProjection();
+        GLES30.glUniformMatrix4fv(uProjLoc, 1, false, proj, 0);
         GLES30.glEnableVertexAttribArray(aPosLoc);
         GLES30.glEnableVertexAttribArray(aTexLoc);
 
@@ -207,6 +234,17 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
         GLES30.glDisableVertexAttribArray(aPosLoc);
         GLES30.glDisableVertexAttribArray(aTexLoc);
+    }
+
+    private void buildProjection() {
+        float zoom = haveView ? viewZoom : 1f;
+        float panX = haveView ? viewPanX : 0f;
+        float panY = haveView ? viewPanY : 0f;
+        float tx = panX / viewWidth * 2.0f;
+        float ty = -panY / viewHeight * 2.0f;
+        Matrix.setIdentityM(proj, 0);
+        Matrix.translateM(proj, 0, tx, ty, 0f);
+        Matrix.scaleM(proj, 0, zoom, zoom, 1f);
     }
 
     private void drawRect(float[] rect, float r, float g, float b, float a) {
