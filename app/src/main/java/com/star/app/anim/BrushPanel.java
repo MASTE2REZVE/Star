@@ -170,6 +170,12 @@ public class BrushPanel extends LinearLayout {
         });
         group.addView(bar);
 
+        switch (slot) {
+            case 0:  sizeBar = bar;    break;
+            case 1:  opacityBar = bar; break;
+            default: flowBar = bar;    break;
+        }
+
         addView(group);
         updateValue(slot);
         return bar;
@@ -204,6 +210,7 @@ public class BrushPanel extends LinearLayout {
     }
 
     public int getSizeDp() {
+        if (sizeBar == null) return MIN_SIZE_DP;
         int v = sizeBar.getProgress();
         if (v < MIN_SIZE_DP) v = MIN_SIZE_DP;
         if (v > MAX_SIZE_DP) v = MAX_SIZE_DP;
@@ -211,10 +218,12 @@ public class BrushPanel extends LinearLayout {
     }
 
     public int getOpacity() {
+        if (opacityBar == null) return 100;
         return opacityBar.getProgress();
     }
 
     public int getFlow() {
+        if (flowBar == null) return 100;
         return flowBar.getProgress();
     }
 
