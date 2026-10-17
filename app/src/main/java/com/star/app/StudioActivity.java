@@ -143,6 +143,7 @@ public class StudioActivity extends Activity {
             try { startActivity(new Intent(this, VideoStudioActivity.class)); }
             catch (Throwable t) { toast("Not installed"); }
         });
+        openBtn("Full Concat Editor", ACCENT, this::launchConcat);
         featureGrid(new String[][]{
             { "Single image motion", "free · Ken Burns" },
             { "Slideshow + RIFE",    "free · 24fps" },
@@ -315,6 +316,17 @@ public class StudioActivity extends Activity {
         g.setColor(fill);
         g.setStroke(dp(1), border);
         return g;
+    }
+
+    private void launchConcat() {
+        Intent i = getPackageManager().getLaunchIntentForPackage("app.concat.editor");
+        if (i == null) {
+            toast("Install /sdcard/Star/concat/concat-app.apk first");
+            return;
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { startActivity(i); }
+        catch (Throwable t) { toast("Install /sdcard/Star/concat/concat-app.apk first"); }
     }
 
     private void toast(String s) {
