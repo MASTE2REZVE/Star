@@ -6,6 +6,8 @@ import android.opengl.GLSurfaceView;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -52,7 +54,15 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         1f, 1f,
     };
 
+    public static final int TOUCH_DOWN = 0;
+    public static final int TOUCH_MOVE = 1;
+    public static final int TOUCH_UP = 2;
+
+    private static final int MAX_TOUCH_POINTS = 4096;
+
     private final float density;
+
+    private final List<float[]> touchPoints = new ArrayList<>();
 
     private FloatBuffer quadBuffer;
     private int program;
@@ -70,6 +80,30 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
     public GLRenderer(float density) {
         this.density = density > 0f ? density : DEFAULT_DENSITY;
+    }
+
+    public synchronized void onTouch(float x, float y, int action) {
+        if (action == android.view.MotionEvent.ACTION_DOWN) {
+            touchPoints.clear();
+            touchPoints.add(new float[] { x, y, TOUCH_DOWN });
+        } else if (action == android.view.MotionEvent.ACTION_MOVE) {
+            touchPoints.add(new float[] { x, y, TOUCH_MOVE });
+        } else if (action == android.view.MotionEvent.ACTION_UP) {
+            touchPoints.add(new float[] { x, y, TOUCH_UP });
+        } else {
+            return;
+        }
+        while (touchPoints.size() > MAX_TOUCH_POINTS) {
+            touchPoints.remove(0);
+        }
+    }
+
+    public synchronized List<float[]> getTouchPoints() {
+        return new ArrayList<>(touchPoints);
+    }
+
+    public synchronized void clearTouchPoints() {
+        touchPoints.clear();
     }
 
     @Override

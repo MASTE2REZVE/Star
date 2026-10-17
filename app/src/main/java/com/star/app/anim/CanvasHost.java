@@ -5,7 +5,6 @@ import android.opengl.GLSurfaceView;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
-import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
@@ -21,6 +20,7 @@ public class CanvasHost extends FrameLayout {
     }
 
     private final GLSurfaceView surface;
+    private final GLRenderer renderer;
     private final float density;
 
     private volatile int canvasWidth = 1240;
@@ -48,10 +48,13 @@ public class CanvasHost extends FrameLayout {
         surface = new GLSurfaceView(c);
         surface.setEGLContextClientVersion(3);
         surface.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
-        surface.setRenderer(new GLRenderer(density));
+        renderer = new GLRenderer(density);
+        surface.setRenderer(renderer);
         surface.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         surface.setBackgroundColor(BG);
         surface.setFocusable(true);
+        surface.setClickable(false);
+        surface.setLongClickable(false);
         surface.setLayoutParams(new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT));
@@ -72,33 +75,40 @@ public class CanvasHost extends FrameLayout {
                 }
             });
 
-        surface.setOnTouchListener(new View.OnTouchListener() {
-            @Override public boolean onTouch(View v, MotionEvent e) {
-                scaleDetector.onTouchEvent(e);
-
-                int count = e.getPointerCount();
-                if (count >= 2) {
-                    float cx = (e.getX(0) + e.getX(1)) / 2f;
-                    float cy = (e.getY(0) + e.getY(1)) / 2f;
-                    if (haveFocus) {
-                        offsetX += cx - lastFocusX;
-                        offsetY += cy - lastFocusY;
-                    }
-                    lastFocusX = cx;
-                    lastFocusY = cy;
-                    haveFocus = true;
-                    return true;
-                }
-
-                if (e.getActionMasked() == MotionEvent.ACTION_UP
-                    || e.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-                    haveFocus = false;
-                }
-                return true;
-            }
-        });
-
         addView(surface);
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        scaleDetector.onTouchEvent(e);
+
+        final int action = e.getActionMasked();
+        int count = e.getPointerCount();
+        if (count >= 2) {
+            float cx = (e.getX(0) + e.getX(1)) / 2f;
+            float cy = (e.getY(0) + e.getY(1)) / 2f;
+            if (haveFocus) {
+                offsetX += cx - lastFocusX;
+                offsetY += cy - lastFocusY;
+            }
+            lastFocusX = cx;
+            lastFocusY = cy;
+            haveFocus = true;
+            return true;
+        }
+
+        if (action == MotionEvent.ACTION_DOWN
+            || action == MotionEvent.ACTION_MOVE
+            || action == MotionEvent.ACTION_UP) {
+            final float x = e.getX();
+            final float y = e.getY();
+            surface.queueEvent(() -> renderer.onTouch(x, y, action));
+        }
+
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            haveFocus = false;
+        }
+        return true;
     }
 
     public void onResume() {
