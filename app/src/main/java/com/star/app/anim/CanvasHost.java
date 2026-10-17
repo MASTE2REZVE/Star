@@ -48,7 +48,7 @@ public class CanvasHost extends FrameLayout {
         surface = new GLSurfaceView(c);
         surface.setEGLContextClientVersion(3);
         surface.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
-        surface.setRenderer(new GLRenderer());
+        surface.setRenderer(new GLRenderer(density));
         surface.setRenderMode(GLSurfaceView.RENDERMODE_CONTINUOUSLY);
         surface.setBackgroundColor(BG);
         surface.setFocusable(true);
