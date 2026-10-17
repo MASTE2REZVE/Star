@@ -32,6 +32,12 @@ public class GLRenderer implements GLSurfaceView.Renderer {
 
     private static final float DEFAULT_DENSITY = 3.0f;
 
+    private static final float STROKE_R = 0.0f;
+    private static final float STROKE_G = 0.0f;
+    private static final float STROKE_B = 0.0f;
+
+    private static final float STROKE_WIDTH_PX = 8.0f;
+
     private static final String VERTEX_SHADER =
         "attribute vec2 aPos;\n"
         + "uniform vec4 uRect;\n"
@@ -65,6 +71,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private final List<float[]> touchPoints = new ArrayList<>();
 
     private FloatBuffer quadBuffer;
+    private FloatBuffer strokeBuffer;
     private int program;
     private int aPosLoc;
     private int uRectLoc;
@@ -116,6 +123,10 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         quadBuffer.put(UNIT_QUAD);
         quadBuffer.position(0);
 
+        ByteBuffer sb = ByteBuffer.allocateDirect(MAX_TOUCH_POINTS * 2 * 4);
+        sb.order(ByteOrder.nativeOrder());
+        strokeBuffer = sb.asFloatBuffer();
+
         int vs = compile(GLES30.GL_VERTEX_SHADER, VERTEX_SHADER);
         int fs = compile(GLES30.GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
         program = link(vs, fs);
@@ -163,6 +174,8 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         drawRect(border, BORDER_R, BORDER_G, BORDER_B, 1.0f);
         drawRect(paper, PAPER_R, PAPER_G, PAPER_B, 1.0f);
 
+        drawStroke();
+
         GLES30.glDisableVertexAttribArray(aPosLoc);
     }
 
@@ -170,6 +183,31 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform4f(uRectLoc, rect[0], rect[1], rect[2], rect[3]);
         GLES30.glUniform4f(uColorLoc, r, g, b, a);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    private void drawStroke() {
+        if (strokeBuffer == null || viewWidth <= 0 || viewHeight <= 0) return;
+
+        int vertexCount;
+        synchronized (this) {
+            vertexCount = touchPoints.size();
+            if (vertexCount < 2) return;
+
+            strokeBuffer.clear();
+            for (int i = 0; i < vertexCount; i++) {
+                float[] p = touchPoints.get(i);
+                strokeBuffer.put(p[0] / viewWidth * 2.0f - 1.0f);
+                strokeBuffer.put(1.0f - p[1] / viewHeight * 2.0f);
+            }
+            strokeBuffer.flip();
+        }
+
+        GLES30.glUniform4f(uRectLoc, 0.0f, 0.0f, 1.0f, 1.0f);
+        GLES30.glUniform4f(uColorLoc, STROKE_R, STROKE_G, STROKE_B, 1.0f);
+        GLES30.glLineWidth(STROKE_WIDTH_PX);
+        GLES30.glVertexAttribPointer(aPosLoc, 2, GLES30.GL_FLOAT, false, 0, strokeBuffer);
+        GLES30.glDrawArrays(GLES30.GL_LINE_STRIP, 0, vertexCount);
+        GLES30.glLineWidth(1.0f);
     }
 
     private int compile(int type, String src) {
