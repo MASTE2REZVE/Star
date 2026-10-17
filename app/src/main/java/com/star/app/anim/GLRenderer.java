@@ -58,10 +58,13 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         + "uniform sampler2D uTex;\n"
         + "uniform vec4 uColor;\n"
         + "uniform float uUseTex;\n"
+        + "uniform float uLayerAlpha;\n"
         + "varying vec2 vTex;\n"
         + "void main() {\n"
         + "    vec4 t = texture2D(uTex, vTex) * uColor;\n"
-        + "    gl_FragColor = mix(uColor, t, uUseTex);\n"
+        + "    vec4 c = mix(uColor, t, uUseTex);\n"
+        + "    c.a *= uLayerAlpha;\n"
+        + "    gl_FragColor = c;\n"
         + "}\n";
 
     private static final float[] QUAD_TEX = {
@@ -95,6 +98,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private int uColorLoc;
     private int uTexLoc;
     private int uUseTexLoc;
+    private int uLayerAlphaLoc;
     private boolean ready;
 
     private final float[] proj = new float[16];
@@ -209,9 +213,10 @@ public class GLRenderer implements GLSurfaceView.Renderer {
         uColorLoc = GLES30.glGetUniformLocation(program, "uColor");
         uTexLoc = GLES30.glGetUniformLocation(program, "uTex");
         uUseTexLoc = GLES30.glGetUniformLocation(program, "uUseTex");
+        uLayerAlphaLoc = GLES30.glGetUniformLocation(program, "uLayerAlpha");
         ready = program != 0 && aPosLoc >= 0 && aTexLoc >= 0
             && uProjLoc >= 0 && uRectLoc >= 0 && uColorLoc >= 0
-            && uTexLoc >= 0 && uUseTexLoc >= 0;
+            && uTexLoc >= 0 && uUseTexLoc >= 0 && uLayerAlphaLoc >= 0;
         Matrix.setIdentityM(proj, 0);
     }
 
@@ -286,6 +291,7 @@ public class GLRenderer implements GLSurfaceView.Renderer {
     private void drawRect(float[] rect, float r, float g, float b, float a) {
         bindQuad(quadTexBuffer);
         GLES30.glUniform1f(uUseTexLoc, 0.0f);
+        GLES30.glUniform1f(uLayerAlphaLoc, 1.0f);
         GLES30.glUniform4f(uRectLoc, rect[0], rect[1], rect[2], rect[3]);
         GLES30.glUniform4f(uColorLoc, r, g, b, a);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
@@ -329,7 +335,8 @@ public class GLRenderer implements GLSurfaceView.Renderer {
             float alpha = layer.getOpacity() / 100f;
             if (alpha < 0f) alpha = 0f;
             if (alpha > 1f) alpha = 1f;
-            GLES30.glUniform4f(uColorLoc, 1f, 1f, 1f, alpha);
+            GLES30.glUniform4f(uColorLoc, 1f, 1f, 1f, 1f);
+            GLES30.glUniform1f(uLayerAlphaLoc, alpha);
 
             for (Tile tile : layer.getTiles().getTiles().values()) {
                 Integer id = textures.get(tile);

@@ -281,6 +281,11 @@ public class AnimStudioActivity extends Activity {
             if (index < 0) return;
             layerManager.setActiveLayer(index);
         });
+        layerPanel.setOnOpacity((id, opacity) -> {
+            int index = indexOfLayer(id);
+            if (index < 0) return;
+            layerManager.getLayers().get(index).setOpacity(opacity);
+        });
 
         toolRail.setOnSelect(code -> {
             if ("U".equals(code)) {
@@ -312,13 +317,9 @@ public class AnimStudioActivity extends Activity {
 
     private int indexOfLayer(String id) {
         if (id == null) return -1;
-        try {
-            int target = Integer.parseInt(id);
-            List<LayerManager.Layer> all = layerManager.getLayers();
-            for (int i = 0; i < all.size(); i++) {
-                if (all.get(i).getId() == target) return i;
-            }
-        } catch (NumberFormatException ignored) {
+        List<LayerManager.Layer> all = layerManager.getLayers();
+        for (int i = 0; i < all.size(); i++) {
+            if (all.get(i).getId().equals(id)) return i;
         }
         return -1;
     }

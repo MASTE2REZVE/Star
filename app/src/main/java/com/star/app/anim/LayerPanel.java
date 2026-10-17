@@ -56,6 +56,12 @@ public class LayerPanel extends LinearLayout {
     private Consumer<String> onAdd;
     private Consumer<String> onDuplicate;
     private Consumer<String> onDelete;
+    private OpacityListener onOpacity;
+
+    /** Notified when the selected layer's opacity changes. */
+    public interface OpacityListener {
+        void onOpacity(String id, int opacity);
+    }
 
     public LayerPanel(Context c) {
         super(c);
@@ -119,7 +125,10 @@ public class LayerPanel extends LinearLayout {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (syncing || !fromUser) return;
                 LayerStub s = selectedStub();
-                if (s != null) s.opacity = progress;
+                if (s != null) {
+                    s.opacity = progress;
+                    if (onOpacity != null) onOpacity.onOpacity(s.id, progress);
+                }
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
             @Override public void onStopTrackingTouch(SeekBar sb) {}
@@ -165,6 +174,10 @@ public class LayerPanel extends LinearLayout {
 
     public void setOnDelete(Consumer<String> l) {
         this.onDelete = l;
+    }
+
+    public void setOnOpacity(OpacityListener l) {
+        this.onOpacity = l;
     }
 
     public void setSelected(String id) {
