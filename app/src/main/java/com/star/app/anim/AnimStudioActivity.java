@@ -45,6 +45,7 @@ public class AnimStudioActivity extends Activity {
     private CanvasHost canvasHost;
     private LayerPanel layerPanel;
     private LayerManager layerManager;
+    private FrameManager frameManager;
     private BrushPanel brushPanel;
     private ColorPanel colorPanel;
     private OnionBar onionBar;
@@ -203,9 +204,9 @@ public class AnimStudioActivity extends Activity {
 
         timeline.setTotalFrames(TOTAL_FRAMES);
         timeline.setFps(START_FPS);
-        timeline.setKeyframes(0, 0, 24, 48, 72, 96);
-        timeline.setKeyframes(1, 0, 48, 96);
-        timeline.setKeyframes(2, 0);
+        frameManager = new FrameManager(TOTAL_FRAMES);
+        seedFrames(frameManager);
+        timeline.setFrameManager(frameManager);
         timeline.setCurrentFrame(START_FRAME);
 
         onionBar.setFps(START_FPS);
@@ -216,6 +217,31 @@ public class AnimStudioActivity extends Activity {
 
         colorPanel.setColor(0xFF000000);
         updateColorIndicator(0xFF000000);
+    }
+
+    /** Give sample frames real layer data so the timeline shows keyframes. */
+    private void seedFrames(FrameManager frameManager) {
+        int[][] keyed = {
+            { 0, 24, 48, 72, 96 },  // L1 - line art
+            { 0, 48, 96 },          // L2 - colour
+            { 0 }                   // BG - background
+        };
+        for (int frame = 0; frame < TOTAL_FRAMES; frame++) {
+            int depth = 0;
+            for (int track = 0; track < keyed.length; track++) {
+                if (containsFrame(keyed[track], frame)) depth = track + 1;
+            }
+            LayerManager frameLayers = frameManager.getFrame(frame);
+            if (frameLayers == null) frameLayers = frameManager.createFrame(frame);
+            while (frameLayers.size() < depth) frameLayers.addLayer();
+        }
+    }
+
+    private boolean containsFrame(int[] frames, int frame) {
+        for (int f : frames) {
+            if (f == frame) return true;
+        }
+        return false;
     }
 
     private void wireBehaviour() {

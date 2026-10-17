@@ -47,6 +47,8 @@ public class TimelinePanel extends LinearLayout {
 
     private IntConsumer onFrameChange;
 
+    private FrameManager frameManager;
+
     public TimelinePanel(Context c) {
         super(c);
         this.density = getResources().getDisplayMetrics().density;
@@ -77,6 +79,7 @@ public class TimelinePanel extends LinearLayout {
             ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         for (int i = 0; i < TRACK_LABELS.length; i++) {
             TrackRow row = new TrackRow(c, i);
+            row.setOnCellTap(frame -> setFrameInternal(frame, true));
             row.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(TRACK_DP)));
             tracksContainer.addView(row);
@@ -128,6 +131,15 @@ public class TimelinePanel extends LinearLayout {
         if (trackIndex < 0 || trackIndex >= trackRows.length) return;
         TrackRow row = trackRows[trackIndex];
         if (row != null) row.setKeyframes(frames);
+    }
+
+    /** Attach the frame store; every track row reads its keyframe data from it. */
+    public void setFrameManager(FrameManager frameManager) {
+        this.frameManager = frameManager;
+        for (TrackRow row : trackRows) {
+            if (row != null) row.setFrameManager(frameManager);
+        }
+        if (frameManager != null) setTotalFrames(frameManager.size());
     }
 
     private void setFrameInternal(int frame, boolean notify) {
@@ -279,6 +291,8 @@ public class TimelinePanel extends LinearLayout {
         private final int index;
         private int totalFrames = 60;
         private int[] keyframes;
+        private FrameManager frameManager;
+        private IntConsumer onCellTap;
 
         TrackRow(Context c, int index) {
             super(c);
@@ -324,16 +338,26 @@ public class TimelinePanel extends LinearLayout {
             invalidate();
         }
 
+        void setFrameManager(FrameManager manager) {
+            frameManager = manager;
+            invalidate();
+        }
+
+        void setOnCellTap(IntConsumer l) {
+            onCellTap = l;
+        }
+
         private boolean isKeyframe(int frame) {
+            if (frameManager != null) {
+                LayerManager frameLayers = frameManager.getFrame(frame);
+                return frameLayers != null && frameLayers.size() > index;
+            }
             if (keyframes != null) {
                 for (int k : keyframes) {
                     if (k == frame) return true;
                 }
-                return false;
             }
-            if (index == 0) return frame % 5 == 0;
-            if (index == 1) return frame % 10 == 0;
-            return frame == 0;
+            return false;
         }
 
         @Override protected void onDraw(Canvas c) {
@@ -370,6 +394,27 @@ public class TimelinePanel extends LinearLayout {
 
             c.drawRect(gutterPx - thickness, 0, gutterPx, h, border);
             c.drawRect(0, h - thickness, w, h, border);
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_MOVE: {
+                    int frame = Math.round((e.getX() - gutterPx) / (float) cellPx);
+                    if (onCellTap != null) onCellTap.accept(frame);
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                    performClick();
+                    return true;
+                default:
+                    return super.onTouchEvent(e);
+            }
+        }
+
+        @Override public boolean performClick() {
+            super.performClick();
+            return true;
         }
     }
 }
