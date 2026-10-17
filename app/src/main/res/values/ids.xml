@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="top_bar" type="id" />
+    <item name="tool_rail" type="id" />
+    <item name="tab_bar" type="id" />
+    <item name="canvas_host" type="id" />
+    <item name="right_dock" type="id" />
+    <item name="bottom_dock" type="id" />
+    <item name="onion_bar" type="id" />
+    <item name="timeline_area" type="id" />
+</resources>

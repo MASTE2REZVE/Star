@@ -95,5 +95,8 @@
         android:exported="false" />
         <activity android:name=".EffectGridActivity"
         android:exported="false" />
+        <activity android:name=".anim.AnimStudioActivity"
+        android:exported="false"
+        android:screenOrientation="landscape" />
     </application>
 </manifest>
