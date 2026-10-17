@@ -1,15 +1,49 @@
 package com.star.app.anim;
 
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class TileManager {
 
     public static final int TILE_SIZE = Tile.SIZE;
 
+    public static final float BRUSH_RADIUS = 12.0f;
+
     private final HashMap<String, Tile> tiles = new HashMap<>();
+
+    private final Set<Tile> dirty = Collections.newSetFromMap(new IdentityHashMap<Tile, Boolean>());
+
+    private final Canvas brushCanvas = new Canvas();
+
+    private final Paint brushFill;
+    private final Paint brushStroke;
+
+    private float lastX;
+    private float lastY;
+    private boolean haveLast;
+
+    public TileManager() {
+        brushFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        brushFill.setColor(Color.BLACK);
+        brushFill.setStyle(Paint.Style.FILL);
+
+        brushStroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        brushStroke.setColor(Color.BLACK);
+        brushStroke.setStyle(Paint.Style.STROKE);
+        brushStroke.setStrokeWidth(BRUSH_RADIUS * 2.0f);
+        brushStroke.setStrokeCap(Paint.Cap.ROUND);
+        brushStroke.setStrokeJoin(Paint.Join.ROUND);
+    }
 
     private static String key(int tileX, int tileY) {
         return tileX + "," + tileY;
@@ -63,10 +97,69 @@ public class TileManager {
         return touched;
     }
 
+    public synchronized List<Tile> beginStroke(float x, float y) {
+        haveLast = false;
+        return strokeTo(x, y);
+    }
+
+    public synchronized List<Tile> strokeTo(float x, float y) {
+        List<Tile> touched;
+        if (haveLast) {
+            touched = onStroke(lastX, lastY, x, y);
+            for (Tile tile : touched) {
+                drawSegment(tile, lastX, lastY, x, y);
+            }
+        } else {
+            Tile tile = getOrCreate(toTileX(x), toTileY(y));
+            drawDot(tile, x, y);
+            touched = new ArrayList<>();
+            touched.add(tile);
+        }
+        lastX = x;
+        lastY = y;
+        haveLast = true;
+        return touched;
+    }
+
+    public synchronized void endStroke() {
+        haveLast = false;
+    }
+
+    private void drawDot(Tile tile, float x, float y) {
+        Bitmap bitmap = tile.getBitmap();
+        if (bitmap == null || bitmap.isRecycled()) return;
+        float ox = tile.getTileX() * (float) TILE_SIZE;
+        float oy = tile.getTileY() * (float) TILE_SIZE;
+        brushCanvas.setBitmap(bitmap);
+        brushCanvas.drawCircle(x - ox, y - oy, BRUSH_RADIUS, brushFill);
+        brushCanvas.setBitmap(null);
+        dirty.add(tile);
+    }
+
+    private void drawSegment(Tile tile, float x0, float y0, float x1, float y1) {
+        Bitmap bitmap = tile.getBitmap();
+        if (bitmap == null || bitmap.isRecycled()) return;
+        float ox = tile.getTileX() * (float) TILE_SIZE;
+        float oy = tile.getTileY() * (float) TILE_SIZE;
+        brushCanvas.setBitmap(bitmap);
+        brushCanvas.drawLine(x0 - ox, y0 - oy, x1 - ox, y1 - oy, brushStroke);
+        brushCanvas.setBitmap(null);
+        dirty.add(tile);
+    }
+
+    public synchronized List<Tile> consumeDirty() {
+        if (dirty.isEmpty()) return new ArrayList<>();
+        List<Tile> out = new ArrayList<>(dirty);
+        dirty.clear();
+        return out;
+    }
+
     public synchronized void clear() {
         for (Tile tile : tiles.values()) {
             tile.recycle();
         }
         tiles.clear();
+        dirty.clear();
+        haveLast = false;
     }
 }
