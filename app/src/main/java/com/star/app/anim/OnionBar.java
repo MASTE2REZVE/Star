@@ -8,6 +8,8 @@ import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -54,6 +56,24 @@ public class OnionBar extends LinearLayout {
     private Runnable onNext;
     private Runnable onTag;
     private IntConsumer onFps;
+    private IntConsumer onFrameAdvance;
+
+    private final Handler playbackHandler = new Handler(Looper.getMainLooper());
+
+    /** Advances the playhead one frame per tick, wrapping back to the first frame. */
+    private final Runnable playbackTick = new Runnable() {
+        @Override public void run() {
+            if (!playing) return;
+            if (totalFrames > 0) {
+                int next = currentFrame + 1;
+                if (next >= totalFrames) next = 0;
+                currentFrame = next;
+                updateFrameCounter();
+                if (onFrameAdvance != null) onFrameAdvance.accept(currentFrame);
+            }
+            playbackHandler.postDelayed(this, frameDelay());
+        }
+    };
 
     public OnionBar(Context c) {
         super(c);
@@ -174,6 +194,10 @@ public class OnionBar extends LinearLayout {
         this.onFps = l;
     }
 
+    public void setOnFrameAdvance(IntConsumer l) {
+        this.onFrameAdvance = l;
+    }
+
     public void setOnTag(Runnable l) {
         this.onTag = l;
     }
@@ -188,11 +212,18 @@ public class OnionBar extends LinearLayout {
     public void setFps(int value) {
         if (value > 0) this.fps = value;
         updateFpsDisplay();
+        if (playing) startPlayback();
     }
 
     public void setPlaying(boolean value) {
+        if (this.playing == value) return;
         this.playing = value;
         updatePlayGlyph();
+        if (playing) {
+            startPlayback();
+        } else {
+            stopPlayback();
+        }
     }
 
     public int getFrame() {
@@ -220,10 +251,32 @@ public class OnionBar extends LinearLayout {
         playing = !wasPlaying;
         updatePlayGlyph();
         if (wasPlaying) {
+            stopPlayback();
             if (onPause != null) onPause.run();
         } else {
+            startPlayback();
             if (onPlay != null) onPlay.run();
         }
+    }
+
+    private void startPlayback() {
+        playbackHandler.removeCallbacks(playbackTick);
+        playbackHandler.postDelayed(playbackTick, frameDelay());
+    }
+
+    private void stopPlayback() {
+        playbackHandler.removeCallbacks(playbackTick);
+    }
+
+    private int frameDelay() {
+        return Math.max(16, 1000 / Math.max(1, fps));
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        stopPlayback();
+        playing = false;
+        super.onDetachedFromWindow();
     }
 
     private void showFpsMenu(View anchor) {

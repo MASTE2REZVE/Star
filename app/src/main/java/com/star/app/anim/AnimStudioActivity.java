@@ -11,8 +11,6 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -40,8 +38,6 @@ public class AnimStudioActivity extends Activity {
     private static final int START_FPS = 24;
     private static final int START_FRAME = 12;
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
-
     private CanvasHost canvasHost;
     private LayerPanel layerPanel;
     private LayerManager layerManager;
@@ -56,15 +52,6 @@ public class AnimStudioActivity extends Activity {
     private String activeTool = "B";
 
     private int fps = START_FPS;
-    private boolean playing = false;
-
-    private final Runnable ticker = new Runnable() {
-        @Override public void run() {
-            if (!playing) return;
-            applyFrame((timeline.getCurrentFrame() + 1) % TOTAL_FRAMES);
-            handler.postDelayed(this, frameDelay());
-        }
-    };
 
     @Override
     protected void onCreate(Bundle b) {
@@ -86,13 +73,6 @@ public class AnimStudioActivity extends Activity {
         setContentView(buildTree());
         seedSampleData();
         wireBehaviour();
-    }
-
-    @Override
-    protected void onDestroy() {
-        playing = false;
-        handler.removeCallbacks(ticker);
-        super.onDestroy();
     }
 
     private View buildTree() {
@@ -255,23 +235,10 @@ public class AnimStudioActivity extends Activity {
                 stepFrame(1);
             }
         });
-        onionBar.setOnPlay(new Runnable() {
-            @Override public void run() {
-                startPlay();
-            }
-        });
-        onionBar.setOnPause(new Runnable() {
-            @Override public void run() {
-                stopPlay();
-            }
-        });
+        onionBar.setOnFrameAdvance(frame -> applyFrame(frame));
         onionBar.setOnFps(value -> {
             fps = value > 0 ? value : 1;
             timeline.setFps(fps);
-            if (playing) {
-                handler.removeCallbacks(ticker);
-                handler.postDelayed(ticker, frameDelay());
-            }
         });
 
         timeline.setOnFrameChange(frame -> onionBar.setFrame(frame, TOTAL_FRAMES));
@@ -358,22 +325,6 @@ public class AnimStudioActivity extends Activity {
     private void applyFrame(int frame) {
         onionBar.setFrame(frame, TOTAL_FRAMES);
         timeline.setCurrentFrame(frame);
-    }
-
-    private void startPlay() {
-        if (playing) return;
-        playing = true;
-        handler.removeCallbacks(ticker);
-        handler.postDelayed(ticker, frameDelay());
-    }
-
-    private void stopPlay() {
-        playing = false;
-        handler.removeCallbacks(ticker);
-    }
-
-    private int frameDelay() {
-        return Math.max(16, 1000 / Math.max(1, fps));
     }
 
     private void updateColorIndicator(int argb) {
